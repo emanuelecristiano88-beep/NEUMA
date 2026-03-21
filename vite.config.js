@@ -56,7 +56,6 @@ export default defineConfig({
   /** WASM + import.meta.url nel pacchetto ArUco: evita pre-bundle che rompe il .wasm */
   optimizeDeps: {
     exclude: ['@ar-js-org/aruco-rs'],
-    include: ['@google/model-viewer'],
   },
   resolve: {
     alias: {
