@@ -87,6 +87,27 @@ export default async function handler(request: Request): Promise<Response> {
       detectionMode: "aruco_a4" as const,
     };
 
+    /** Placeholder allineato a pipeline desktop — sostituire con output reale da M1/officina. */
+    const metrics = {
+      lunghezzaMm: 265,
+      larghezzaMm: 95,
+      volumeCm3: 1450,
+      circonferenzaColloMm: 66,
+      left: {
+        lunghezzaMm: 264,
+        larghezzaMm: 98,
+        circonferenzaColloMm: 65,
+        volumeCm3: 1420,
+      },
+      right: {
+        lunghezzaMm: 267,
+        larghezzaMm: 101,
+        circonferenzaColloMm: 68,
+        volumeCm3: 1480,
+      },
+      scanVersion: "V6",
+    };
+
     return Response.json({
       status: "success",
       scanId,
@@ -97,6 +118,7 @@ export default async function handler(request: Request): Promise<Response> {
       scaleReferenceNote: "A4 detected (placeholder) — Vercel Edge: nessun salvataggio file su disco",
       scaleReference,
       message: "Pronto per la ricostruzione 3D in officina",
+      metrics,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

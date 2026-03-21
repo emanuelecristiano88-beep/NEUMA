@@ -7,7 +7,7 @@ import { Button } from "./components/ui/button";
 import { Checkbox } from "./components/ui/checkbox";
 import { Label } from "./components/ui/label";
 import { cn } from "./lib/utils";
-import { PAIR_STORAGE_KEY } from "./constants/scan";
+import { PAIR_STORAGE_KEY, SCAN_METRICS_STORAGE_KEY } from "./constants/scan";
 
 type Photo = {
   blob: Blob;
@@ -590,6 +590,16 @@ export default function ScannerCattura() {
 
       if (typeof sessionStorage !== "undefined") {
         sessionStorage.setItem(PAIR_STORAGE_KEY, "true");
+        const m = data?.metrics;
+        if (m && typeof m === "object") {
+          sessionStorage.setItem(
+            SCAN_METRICS_STORAGE_KEY,
+            JSON.stringify({
+              ...m,
+              updatedAt: new Date().toISOString(),
+            })
+          );
+        }
       }
 
       // simulazione elaborazione di 3 secondi (poi abilita "VISUALIZZA 3D")

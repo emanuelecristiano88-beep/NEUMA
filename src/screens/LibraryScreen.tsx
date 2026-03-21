@@ -13,16 +13,15 @@ import { Label } from "../components/ui/label";
 import { Slider } from "../components/ui/slider";
 import { cn } from "../lib/utils";
 import { PAIR_STORAGE_KEY } from "../constants/scan";
-import BiometricComparisonDashboard from "../components/BiometricComparisonDashboard";
+import BiometricAnalysisPanel from "../components/BiometricAnalysisPanel";
+import ScanFootprint2D from "../components/ScanFootprint2D";
+import { useScanMetrics } from "../hooks/useScanMetrics";
 
 const DigitalFittingViewer = lazy(() => import("../../components/three/DigitalFittingViewer"));
 
-const FITTING_DATA = {
-  volumeCm3: 1450,
+const FITTING_STATIC = {
   tagliaConsigliata: "EU 42",
   filamentoTpuG: 110,
-  lunghezzaMm: 265,
-  larghezzaMm: 95,
 } as const;
 
 type ScanItem = {
@@ -52,6 +51,15 @@ type LibraryScreenProps = {
 };
 
 export default function LibraryScreen({ onOpenScanner }: LibraryScreenProps) {
+  const { metrics: scanMetrics, refresh: refreshScanMetrics } = useScanMetrics();
+  const viewerMetrics = useMemo(
+    () => ({
+      footLengthMm: scanMetrics.lunghezzaMm,
+      forefootWidthMm: scanMetrics.larghezzaMm,
+    }),
+    [scanMetrics.larghezzaMm, scanMetrics.lunghezzaMm]
+  );
+
   const [query, setQuery] = useState("");
   const [viewerOpen, setViewerOpen] = useState(false);
   const [selectedScan, setSelectedScan] = useState<ScanItem | null>(null);
@@ -81,6 +89,10 @@ export default function LibraryScreen({ onOpenScanner }: LibraryScreenProps) {
   useEffect(() => {
     if (viewerOpen) refreshPairFlag();
   }, [viewerOpen, refreshPairFlag]);
+
+  useEffect(() => {
+    if (viewerOpen) refreshScanMetrics();
+  }, [viewerOpen, refreshScanMetrics]);
 
   const items: ScanItem[] = useMemo(
     () =>
@@ -122,13 +134,13 @@ export default function LibraryScreen({ onOpenScanner }: LibraryScreenProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           scanId: selectedScan.id,
-          tagliaScelta: FITTING_DATA.tagliaConsigliata,
+          tagliaScelta: FITTING_STATIC.tagliaConsigliata,
           coloreSelezionato,
           millimetri: {
-            lunghezzaMm: FITTING_DATA.lunghezzaMm,
-            larghezzaMm: FITTING_DATA.larghezzaMm,
-            volumeCm3: FITTING_DATA.volumeCm3,
-            filamentoTpuG: FITTING_DATA.filamentoTpuG,
+            lunghezzaMm: scanMetrics.lunghezzaMm,
+            larghezzaMm: scanMetrics.larghezzaMm,
+            volumeCm3: scanMetrics.volumeCm3,
+            filamentoTpuG: FITTING_STATIC.filamentoTpuG,
           },
         }),
       });
@@ -144,7 +156,7 @@ export default function LibraryScreen({ onOpenScanner }: LibraryScreenProps) {
     } finally {
       setOrderSending(false);
     }
-  }, [selectedScan, coloreSelezionato, orderSent, orderSending]);
+  }, [selectedScan, coloreSelezionato, orderSent, orderSending, scanMetrics]);
 
   return (
     <div className="min-h-[100dvh] bg-zinc-950 pb-28 text-zinc-100">
@@ -265,20 +277,64 @@ export default function LibraryScreen({ onOpenScanner }: LibraryScreenProps) {
             </div>
 
             {viewerOpen ? (
-              <div className="min-h-0 flex-1 pt-2">
-                <Suspense
-                  fallback={
-                    <div className="flex min-h-[50dvh] items-center justify-center text-sm text-zinc-400">
-                      Caricamento viewer 3D…
+              <div className="flex min-h-0 flex-1 flex-col pt-2 md:flex-row">
+                {/* Viewer 3D + v6 + plantare 2D ~70% (ref. dashboard biometrica) */}
+                <div className="relative flex min-h-[42dvh] w-full min-w-0 flex-col md:w-[70%] md:flex-[0_0_70%] md:min-h-0">
+                  <div className="relative flex min-h-[280px] flex-1 flex-row items-stretch md:min-h-0">
+                    <div className="relative min-h-[240px] min-w-0 flex-1">
+                      <Suspense
+                        fallback={
+                          <div className="flex min-h-[50dvh] items-center justify-center text-sm text-zinc-400 md:absolute md:inset-0 md:min-h-0">
+                            Caricamento viewer 3D…
+                          </div>
+                        }
+                      >
+                        <DigitalFittingViewer
+                          shoeTransparencyPercent={shoeTransparency}
+                          metrics={viewerMetrics}
+                          className="absolute inset-0 min-h-[280px] w-full md:min-h-0"
+                        />
+                      </Suspense>
                     </div>
-                  }
-                >
-                  <DigitalFittingViewer shoeTransparencyPercent={shoeTransparency} />
-                </Suspense>
+                    <div
+                      className="relative z-10 flex w-11 shrink-0 flex-col items-center justify-center border-x border-zinc-800/70 bg-zinc-950/50"
+                      aria-hidden
+                    >
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-600/95 text-[10px] font-semibold lowercase tracking-tight text-white shadow-md">
+                        {(scanMetrics.scanVersion ?? "v6").replace(/^V/i, "v")}
+                      </div>
+                    </div>
+                    <div className="flex w-[92px] shrink-0 flex-col items-center justify-center border-l border-zinc-800/70 bg-zinc-950/60 px-1.5 md:w-[118px]">
+                      <ScanFootprint2D className="max-h-[min(200px,28dvh)] w-full opacity-95" />
+                      <span className="mt-1 text-[8px] font-medium uppercase tracking-[0.2em] text-zinc-500">Plantare</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Pannello dati ~30% + Conferma flottante (fuori card, ref.) */}
+                <div className="relative flex max-h-[55dvh] min-h-0 w-full flex-col border-t border-zinc-800 pb-20 md:max-h-none md:w-[30%] md:flex-[0_0_30%] md:border-l md:border-t-0 md:pb-24">
+                  <BiometricAnalysisPanel
+                    metrics={scanMetrics}
+                    hideConfirmButton
+                    className="h-full min-h-0 flex-1 overflow-hidden rounded-none border-0 border-zinc-800/0 bg-zinc-900/50 shadow-none md:max-h-[calc(100dvh-8rem)]"
+                  />
+                  <Button
+                    type="button"
+                    className="absolute bottom-4 right-4 z-20 rounded-full bg-blue-600 px-8 py-6 text-sm font-semibold text-white shadow-lg shadow-blue-600/35 hover:bg-blue-700 md:bottom-6 md:right-5"
+                    onClick={() => {
+                      document.getElementById("alpino-production-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }}
+                  >
+                    Conferma
+                  </Button>
+                </div>
               </div>
             ) : null}
 
-            <div className="border-t border-zinc-800 bg-zinc-950/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 backdrop-blur-md">
+            <div
+              id="alpino-production-panel"
+              className="border-t border-zinc-800 bg-zinc-950/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 backdrop-blur-md"
+            >
               <div className="mx-auto max-w-md space-y-4">
                 <div className="space-y-3">
                   <Label className="text-zinc-100">Trasparenza scarpa (fitting)</Label>
@@ -301,26 +357,24 @@ export default function LibraryScreen({ onOpenScanner }: LibraryScreenProps) {
                   <CardContent className="grid gap-3 p-4">
                     <div className="flex justify-between gap-4 border-b border-zinc-800 pb-2">
                       <span className="text-zinc-400">Volume piede</span>
-                      <span className="font-semibold text-white">{FITTING_DATA.volumeCm3} cm³</span>
+                      <span className="font-semibold text-white">{scanMetrics.volumeCm3} cm³</span>
                     </div>
                     <div className="flex justify-between gap-4 border-b border-zinc-800 pb-2">
                       <span className="text-zinc-400">Taglia consigliata</span>
-                      <span className="font-semibold text-white">{FITTING_DATA.tagliaConsigliata}</span>
+                      <span className="font-semibold text-white">{FITTING_STATIC.tagliaConsigliata}</span>
                     </div>
                     <div className="flex justify-between gap-4 border-b border-zinc-800 pb-2">
                       <span className="text-zinc-400">Millimetri (L × L)</span>
                       <span className="font-semibold text-white">
-                        {FITTING_DATA.lunghezzaMm} × {FITTING_DATA.larghezzaMm} mm
+                        {scanMetrics.lunghezzaMm} × {scanMetrics.larghezzaMm} mm
                       </span>
                     </div>
                     <div className="flex justify-between gap-4">
                       <span className="text-zinc-400">Filamento TPU stimato</span>
-                      <span className="font-semibold text-white">{FITTING_DATA.filamentoTpuG} g</span>
+                      <span className="font-semibold text-white">{FITTING_STATIC.filamentoTpuG} g</span>
                     </div>
                   </CardContent>
                 </Card>
-
-                <BiometricComparisonDashboard />
 
                 <div className="space-y-2">
                   <Label htmlFor="filament-color" className="text-xs text-zinc-400">

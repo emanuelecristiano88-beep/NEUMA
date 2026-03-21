@@ -1,8 +1,7 @@
 "use client";
 
 /**
- * Viewer 3D del fitting. Il pannello inferiore del modal (slider, dati volume/taglia,
- * dashboard confronto biometrico SX/DX, invio in produzione) vive in `src/screens/LibraryScreen.tsx`.
+ * Viewer 3D biometrico: piede con materiale tipo “mappa calore” / scansione laser + griglia millimetrica.
  */
 import React, { Suspense, useEffect, useMemo, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
@@ -12,7 +11,6 @@ import * as THREE from "three";
 type Metrics = { footLengthMm: number; forefootWidthMm: number };
 
 type DigitalFittingViewerProps = {
-  /** 0 = scarpa opaca, 100 = scarpa molto trasparente (fitting “fantasma”) */
   shoeTransparencyPercent: number;
   metrics?: Metrics | null;
   footPlaceholderUrl?: string | null;
@@ -27,23 +25,60 @@ function computeOffsetToCenterAndDrop(object: THREE.Object3D) {
   return new THREE.Vector3(-center.x, -minY, -center.z);
 }
 
-/** Piede “scansionato”: placeholder geometrico (nessun .glb richiesto). */
-function ScannedFootPlaceholder({ scaleFactor }: { scaleFactor: number }) {
-  const skin = "#c9a27e";
-  const rough = 0.62;
+/** Texture gradiente azzurro/blu elettrico (effetto scansione). */
+function useHeatScanTexture() {
+  return useMemo(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      const fallback = new THREE.Texture();
+      return fallback;
+    }
+    const g = ctx.createLinearGradient(0, 256, 256, 0);
+    g.addColorStop(0, "#020617");
+    g.addColorStop(0.25, "#0369a1");
+    g.addColorStop(0.55, "#22d3ee");
+    g.addColorStop(0.8, "#3b82f6");
+    g.addColorStop(1, "#6366f1");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 256, 256);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(1.2, 1.2);
+    return tex;
+  }, []);
+}
+
+const footMat = {
+  color: "#e0f2fe" as const,
+  metalness: 0.22,
+  roughness: 0.35,
+  clearcoat: 0.55,
+  clearcoatRoughness: 0.28,
+  emissive: "#1d4ed8" as const,
+  emissiveIntensity: 0.22,
+};
+
+/** Piede placeholder con MeshPhysicalMaterial “laser / heat map”. */
+function HeatScannedFootPlaceholder({ scaleFactor }: { scaleFactor: number }) {
+  const map = useHeatScanTexture();
+  const s = scaleFactor * 0.95;
+
   return (
-    <group scale={[scaleFactor * 0.95, scaleFactor * 0.95, scaleFactor * 0.95]} position={[0, 0.02, 0]}>
+    <group scale={[s, s, s]} position={[0, 0.02, 0]}>
       <mesh castShadow receiveShadow position={[0, 0.035, 0.06]} rotation={[0.15, 0, 0]}>
         <capsuleGeometry args={[0.055, 0.14, 8, 24]} />
-        <meshStandardMaterial color={skin} roughness={rough} metalness={0.05} />
+        <meshPhysicalMaterial {...footMat} map={map} />
       </mesh>
       <mesh castShadow receiveShadow position={[0, 0.04, -0.05]}>
         <sphereGeometry args={[0.07, 24, 24]} />
-        <meshStandardMaterial color={skin} roughness={rough} metalness={0.05} />
+        <meshPhysicalMaterial {...footMat} map={map} />
       </mesh>
       <mesh castShadow receiveShadow position={[0, 0.012, 0]}>
         <boxGeometry args={[0.09, 0.024, 0.22]} />
-        <meshStandardMaterial color={skin} roughness={rough + 0.1} metalness={0.02} />
+        <meshPhysicalMaterial {...footMat} map={map} />
       </mesh>
     </group>
   );
@@ -96,6 +131,15 @@ function ShoeOverlay({
   );
 }
 
+function MillimeterGrid() {
+  const grid = useMemo(() => {
+    const g = new THREE.GridHelper(1.6, 32, 0x3b82f6, 0x3f3f46);
+    g.position.y = -0.02;
+    return g;
+  }, []);
+  return <primitive object={grid} />;
+}
+
 function SceneContent({
   shoeUrl,
   metrics,
@@ -106,36 +150,35 @@ function SceneContent({
   shoeTransparencyPercent: number;
 }) {
   const scaleFactor = metrics ? metrics.footLengthMm / 280 : 1;
-  // Più alto % trasparenza → più “fantasma” la scarpa (opacity più bassa)
   const shoeOpacity = 1 - shoeTransparencyPercent / 100;
 
   return (
     <>
       <ambientLight intensity={0.5} />
-      <directionalLight position={[0.4, 0.9, 0.35]} intensity={1.15} />
-      <directionalLight position={[-0.5, 0.3, -0.2]} intensity={0.35} color="#a78bfa" />
-      <ScannedFootPlaceholder scaleFactor={scaleFactor} />
+      <directionalLight position={[0.45, 0.95, 0.4]} intensity={1.25} color="#ffffff" />
+      <directionalLight position={[-0.55, 0.35, -0.25]} intensity={0.45} color="#38bdf8" />
+      <pointLight position={[0, 0.35, 0.2]} intensity={0.35} color="#93c5fd" distance={2} />
+
+      <MillimeterGrid />
+      <HeatScannedFootPlaceholder scaleFactor={scaleFactor} />
+
       <Suspense
         fallback={
           <Html center>
-            <div className="rounded border border-violet-400/40 bg-black/70 px-3 py-2 text-xs text-violet-200">
+            <div className="rounded border border-blue-500/40 bg-black/70 px-3 py-2 text-xs text-blue-200">
               Caricamento scarpa (fitting)…
             </div>
           </Html>
         }
       >
-        <Environment preset="studio" intensity={0.65} />
+        <Environment preset="studio" intensity={0.55} />
         <ShoeOverlay shoeUrl={shoeUrl} metrics={metrics} opacity={shoeOpacity} />
       </Suspense>
-      <OrbitControls enablePan={false} minDistance={0.35} maxDistance={1.4} />
+      <OrbitControls enablePan={false} minDistance={0.35} maxDistance={1.4} target={[0, 0.06, 0]} />
     </>
   );
 }
 
-/**
- * Visualizzatore fitting: piede placeholder + scarpa GLTF sovrapposta con trasparenza regolabile.
- * Nota: `footPlaceholderUrl` riservato per futuro .glb piede reale; oggi si usa geometria placeholder.
- */
 export default function DigitalFittingViewer({
   shoeTransparencyPercent,
   metrics = { footLengthMm: 265, forefootWidthMm: 95 },

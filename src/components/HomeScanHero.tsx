@@ -40,8 +40,8 @@ export default function HomeScanHero({ onOpenScanner }: HomeScanHeroProps) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
         >
-          {/* Sfondo solido obbligatorio per mix-blend: il bianco dell’PNG diventa “trasparente” visivamente */}
-          <div className="relative isolate mx-auto overflow-hidden rounded-2xl bg-zinc-950 ring-1 ring-zinc-800/80">
+          {/* Pannello chiaro: senza mix-blend-multiply (su zinc-950 i piedi sparivano). */}
+          <div className="relative isolate mx-auto overflow-hidden rounded-2xl bg-gradient-to-b from-zinc-100 to-zinc-200/95 ring-1 ring-zinc-400/40 shadow-inner shadow-white/20">
             <div className="relative flex items-center justify-center">
               {/* Fascio di scansione verticale (effetto “sta scansionando / modellando”) */}
               <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden">
@@ -50,10 +50,10 @@ export default function HomeScanHero({ onOpenScanner }: HomeScanHeroProps) {
 
               {/* Strato mesh: griglia che pulsa sopra l’immagine (reforza effetto CAD) */}
               <div
-                className="pointer-events-none absolute inset-0 z-10 opacity-[0.18] hero-mesh-shimmer-layer"
+                className="pointer-events-none absolute inset-0 z-10 opacity-[0.22] hero-mesh-shimmer-layer"
                 style={{
                   backgroundImage:
-                    "linear-gradient(rgba(59,130,246,0.4) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.35) 1px, transparent 1px)",
+                    "linear-gradient(rgba(59,130,246,0.45) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.4) 1px, transparent 1px)",
                   backgroundSize: "14px 14px",
                 }}
               />
@@ -63,18 +63,18 @@ export default function HomeScanHero({ onOpenScanner }: HomeScanHeroProps) {
                 alt="Modello 3D di piedi con mesh di scansione digitale"
                 width={1200}
                 height={800}
-                className="relative z-[1] h-auto w-full max-h-[min(52vh,420px)] object-contain object-center hero-feet-mesh-breathe mix-blend-multiply"
+                className="relative z-[1] h-auto w-full max-h-[min(52vh,420px)] object-contain object-center hero-feet-mesh-breathe brightness-[1.08] contrast-[1.12] saturate-[1.05]"
                 decoding="async"
               />
 
               {/* Alone blu leggero ai bordi */}
-              <div className="pointer-events-none absolute inset-0 z-[2] rounded-2xl shadow-[inset_0_0_80px_rgba(59,130,246,0.08)]" />
+              <div className="pointer-events-none absolute inset-0 z-[2] rounded-2xl shadow-[inset_0_0_80px_rgba(59,130,246,0.12)]" />
             </div>
           </div>
         </motion.div>
 
-        <p className="relative z-10 mt-3 max-w-lg text-center text-xs text-zinc-400">
-          Pannello chiaro per far risaltare foto e mesh; animazione simula scansione e costruzione.
+        <p className="relative z-10 mt-3 max-w-lg text-center text-xs text-zinc-300">
+          Mesh e piedi su pannello chiaro per massimo contrasto; fascio blu simula la scansione.
         </p>
       </div>
 
