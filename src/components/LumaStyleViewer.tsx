@@ -10,14 +10,7 @@
  */
 import React, { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import {
-  ContactShadows,
-  Environment,
-  Grid,
-  Html,
-  OrbitControls,
-  useGLTF,
-} from "@react-three/drei";
+import { Environment, Html, OrbitControls, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { X } from "lucide-react";
 import { Button } from "./ui/button";
@@ -133,7 +126,9 @@ function LumaShoe({
 }) {
   const { scene } = useGLTF(glbSrc) as unknown as { scene: THREE.Object3D };
 
-  const clone = useMemo(() => cloneSceneWithMaterials(scene), [scene, glbSrc]);
+  /** Solo `glbSrc`: evita re-clone se l’istanza `scene` dalla cache cambia riferimento. */
+  const clone = useMemo(() => cloneSceneWithMaterials(scene), [glbSrc]);
+
   const offset = useMemo(() => computeOffsetToFloor(clone), [clone]);
 
   useLayoutEffect(() => {
@@ -147,16 +142,6 @@ function LumaShoe({
   );
 }
 
-/** Mantiene alpha pulito ogni frame (video dietro). */
-function TransparentClear() {
-  const { gl, scene } = useThree();
-  useFrame(() => {
-    gl.setClearColor(0x000000, 0);
-    scene.background = null;
-  });
-  return null;
-}
-
 function LumaScene({
   glbSrc,
   materialPreset,
@@ -166,10 +151,9 @@ function LumaScene({
 }) {
   return (
     <>
-      <TransparentClear />
-      <ambientLight intensity={0.35} />
-      <directionalLight position={[2.2, 4, 1.5]} intensity={0.85} color="#ffffff" />
-      <directionalLight position={[-2, 1.5, -1]} intensity={0.35} color="#38bdf8" />
+      <ambientLight intensity={0.45} />
+      <directionalLight position={[2.2, 4, 1.5]} intensity={0.75} color="#ffffff" />
+      <directionalLight position={[-2, 1.5, -1]} intensity={0.3} color="#38bdf8" />
 
       <Suspense
         fallback={
@@ -180,34 +164,10 @@ function LumaScene({
           </Html>
         }
       >
-        <Environment preset="city" environmentIntensity={1.15} />
+        {/* "studio" è più leggero di "city" (meno rischio freeze su mobile). */}
+        <Environment preset="studio" environmentIntensity={0.95} />
         <LumaShoe glbSrc={glbSrc} materialPreset={materialPreset} />
       </Suspense>
-
-      <ContactShadows
-        position={[0, 0.001, 0]}
-        opacity={0.55}
-        scale={14}
-        blur={2.8}
-        far={4.5}
-        color="#000000"
-      />
-
-      {/* Piano di riferimento: ancoraggio “a terra” (il piede reale andrebbe da MediaPipe / depth in futuro). */}
-      <Grid
-        position={[0, -0.002, 0]}
-        args={[20, 20]}
-        cellSize={0.12}
-        cellThickness={0.4}
-        cellColor="#38bdf8"
-        sectionSize={1.2}
-        sectionThickness={0.85}
-        sectionColor="#0ea5e9"
-        fadeDistance={9}
-        fadeStrength={1.35}
-        infiniteGrid
-        followCamera={false}
-      />
 
       <OrbitControls
         makeDefault
@@ -241,13 +201,18 @@ export default function LumaStyleViewer({ open, onOpenChange, shoe, onAdaptFoot 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [camError, setCamError] = useState<string | null>(null);
   const [materialPreset, setMaterialPreset] = useState<LumaMaterialPreset>("tpu");
+  /** Monta WebGL dopo il primo frame: la modale resta reattiva (evita jank su iOS). */
+  const [mountCanvas, setMountCanvas] = useState(false);
 
   useEffect(() => {
     if (!open) {
       setCamError(null);
+      setMountCanvas(false);
       return;
     }
     setMaterialPreset("tpu");
+    const id = requestAnimationFrame(() => setMountCanvas(true));
+    return () => cancelAnimationFrame(id);
   }, [open]);
 
   useEffect(() => {
@@ -328,21 +293,35 @@ export default function LumaStyleViewer({ open, onOpenChange, shoe, onAdaptFoot 
           ) : null}
 
           <div className="absolute inset-0 z-[5] touch-none">
-            <Canvas
-              shadows
-              dpr={[1, 2]}
-              frameloop="always"
-              camera={{ position: [0.35, 0.38, 0.95], fov: 42, near: 0.05, far: 80 }}
-              gl={{
-                alpha: true,
-                antialias: true,
-                powerPreference: "high-performance",
-                premultipliedAlpha: false,
-              }}
-              style={{ width: "100%", height: "100%", touchAction: "none" }}
-            >
-              <LumaScene glbSrc={shoe.glbSrc} materialPreset={materialPreset} />
-            </Canvas>
+            {mountCanvas ? (
+              <Canvas
+                key={shoe.glbSrc}
+                dpr={[1, typeof window !== "undefined" ? Math.min(window.devicePixelRatio || 1, 1.75) : 1]}
+                frameloop="always"
+                camera={{ position: [0.35, 0.38, 0.95], fov: 42, near: 0.05, far: 80 }}
+                gl={{
+                  alpha: true,
+                  antialias: true,
+                  powerPreference: "default",
+                  premultipliedAlpha: false,
+                  stencil: false,
+                  depth: true,
+                }}
+                style={{ width: "100%", height: "100%", touchAction: "none" }}
+                onCreated={({ gl, scene }) => {
+                  gl.setClearColor(0x000000, 0);
+                  scene.background = null;
+                }}
+              >
+                <LumaScene glbSrc={shoe.glbSrc} materialPreset={materialPreset} />
+              </Canvas>
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-transparent">
+                <p className="rounded-lg border border-sky-500/35 bg-black/50 px-4 py-2 font-mono text-[10px] uppercase tracking-wider text-sky-300 backdrop-blur-sm">
+                  Preparazione viewer…
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="pointer-events-none absolute left-0 right-0 top-0 z-20 flex items-start justify-between gap-3 p-3">

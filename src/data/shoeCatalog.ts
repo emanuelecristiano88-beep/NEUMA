@@ -28,13 +28,14 @@ export const SHOE_CATALOG: ShoeCatalogItem[] = [
     id: "alpino-pro",
     name: "Alpino Pro",
     subtitle: "Performance · mesh ventilata",
-    glbSrc:
-      "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Fox/glTF-Binary/Fox.glb",
+    /** GLB leggero: Fox/RobotExpressive bloccano spesso mobile + WebGL */
+    glbSrc: "https://modelviewer.dev/shared-assets/models/Astronaut.glb",
   },
   {
     id: "alpino-classic",
     name: "Alpino Classic",
     subtitle: "Daily · comfort",
-    glbSrc: "https://modelviewer.dev/shared-assets/models/RobotExpressive.glb",
+    glbSrc:
+      "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Duck/glTF-Binary/Duck.glb",
   },
 ];

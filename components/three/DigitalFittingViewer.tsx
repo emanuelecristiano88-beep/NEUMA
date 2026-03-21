@@ -1,11 +1,13 @@
 "use client";
 
 /**
- * Viewer 3D biometrico: piede con materiale tipo “mappa calore” / scansione laser + griglia millimetrica.
+ * Viewer 3D fitting: piede placeholder + scarpa da STL (Bambu Studio) o GLB.
+ * STL: MeshPhysicalMaterial blu scansione + PointLight che segue la camera.
  */
-import React, { Suspense, useEffect, useMemo, useRef } from "react";
-import { Canvas } from "@react-three/fiber";
+import React, { Suspense, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { Canvas, useFrame, useLoader, useThree } from "@react-three/fiber";
 import { Environment, Html, OrbitControls, useGLTF } from "@react-three/drei";
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import * as THREE from "three";
 
 type Metrics = { footLengthMm: number; forefootWidthMm: number };
@@ -14,9 +16,13 @@ type DigitalFittingViewerProps = {
   shoeTransparencyPercent: number;
   metrics?: Metrics | null;
   footPlaceholderUrl?: string | null;
+  /** GLB oppure STL (es. `/models/scarpa.stl` in `public/models/`). */
   shoeUrl?: string;
   className?: string;
 };
+
+/** Lato lungo massimo nel mondo della scena (adatta alla card). */
+const FIT_MAX_EXTENT = 0.36;
 
 function computeOffsetToCenterAndDrop(object: THREE.Object3D) {
   const box = new THREE.Box3().setFromObject(object);
@@ -25,7 +31,6 @@ function computeOffsetToCenterAndDrop(object: THREE.Object3D) {
   return new THREE.Vector3(-center.x, -minY, -center.z);
 }
 
-/** Texture gradiente azzurro/blu elettrico (effetto scansione). */
 function useHeatScanTexture() {
   return useMemo(() => {
     const canvas = document.createElement("canvas");
@@ -33,8 +38,7 @@ function useHeatScanTexture() {
     canvas.height = 256;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
-      const fallback = new THREE.Texture();
-      return fallback;
+      return new THREE.Texture();
     }
     const g = ctx.createLinearGradient(0, 256, 256, 0);
     g.addColorStop(0, "#020617");
@@ -61,7 +65,6 @@ const footMat = {
   emissiveIntensity: 0.22,
 };
 
-/** Piede placeholder con MeshPhysicalMaterial “laser / heat map”. */
 function HeatScannedFootPlaceholder({ scaleFactor }: { scaleFactor: number }) {
   const map = useHeatScanTexture();
   const s = scaleFactor * 0.95;
@@ -131,6 +134,89 @@ function ShoeOverlay({
   );
 }
 
+/** PointLight blu legata alla posizione della camera (evidenzia rilievi). */
+function CameraFollowPointLight() {
+  const lightRef = useRef<THREE.PointLight>(null);
+  const { camera } = useThree();
+
+  useFrame(() => {
+    const L = lightRef.current;
+    if (!L) return;
+    L.position.copy(camera.position);
+  });
+
+  return (
+    <pointLight
+      ref={lightRef}
+      color="#60a5fa"
+      intensity={2.2}
+      distance={4.5}
+      decay={2}
+    />
+  );
+}
+
+function StlBambuShoe({
+  url,
+  baseOpacity,
+}: {
+  url: string;
+  /** 0–1 da slider trasparenza (moltiplica 0.8 base). */
+  baseOpacity: number;
+}) {
+  const geometry = useLoader(STLLoader, url) as THREE.BufferGeometry;
+
+  const { centeredGeo, uniformScale } = useMemo(() => {
+    const g = geometry.clone();
+    g.computeVertexNormals();
+    g.center();
+    g.computeBoundingBox();
+    const box = g.boundingBox;
+    if (!box) {
+      return { centeredGeo: g, uniformScale: 1 };
+    }
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z, 1e-6);
+    const uniformScale = FIT_MAX_EXTENT / maxDim;
+    return { centeredGeo: g, uniformScale };
+  }, [geometry]);
+
+  const matOpacity = THREE.MathUtils.clamp(0.8 * baseOpacity, 0.12, 1);
+
+  return (
+    <group scale={[uniformScale, uniformScale, uniformScale]} position={[0, 0.02, 0]}>
+      {/* Corpo: materiale fisico blu scansione */}
+      <mesh geometry={centeredGeo} castShadow receiveShadow>
+        <meshPhysicalMaterial
+          color="#0066ff"
+          emissive="#2563eb"
+          emissiveIntensity={0.85}
+          metalness={0.25}
+          roughness={0.38}
+          clearcoat={0.35}
+          clearcoatRoughness={0.4}
+          transparent
+          opacity={matOpacity}
+          depthWrite={matOpacity > 0.65}
+          wireframe
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      {/* Griglia wireframe sottile sopra (effetto digitale) */}
+      <mesh geometry={centeredGeo} scale={1.002} renderOrder={1}>
+        <meshBasicMaterial
+          color="#7dd3fc"
+          wireframe
+          transparent
+          opacity={0.22}
+          depthWrite={false}
+        />
+      </mesh>
+    </group>
+  );
+}
+
 function MillimeterGrid() {
   const grid = useMemo(() => {
     const g = new THREE.GridHelper(1.6, 32, 0x3b82f6, 0x3f3f46);
@@ -151,13 +237,14 @@ function SceneContent({
 }) {
   const scaleFactor = metrics ? metrics.footLengthMm / 280 : 1;
   const shoeOpacity = 1 - shoeTransparencyPercent / 100;
+  const isStl = shoeUrl.toLowerCase().endsWith(".stl");
 
   return (
     <>
-      <ambientLight intensity={0.5} />
-      <directionalLight position={[0.45, 0.95, 0.4]} intensity={1.25} color="#ffffff" />
-      <directionalLight position={[-0.55, 0.35, -0.25]} intensity={0.45} color="#38bdf8" />
-      <pointLight position={[0, 0.35, 0.2]} intensity={0.35} color="#93c5fd" distance={2} />
+      <ambientLight intensity={0.35} />
+      <directionalLight position={[0.45, 0.95, 0.4]} intensity={0.85} color="#ffffff" />
+      <directionalLight position={[-0.55, 0.35, -0.25]} intensity={0.35} color="#38bdf8" />
+      <CameraFollowPointLight />
 
       <MillimeterGrid />
       <HeatScannedFootPlaceholder scaleFactor={scaleFactor} />
@@ -166,23 +253,30 @@ function SceneContent({
         fallback={
           <Html center>
             <div className="rounded border border-blue-500/40 bg-black/70 px-3 py-2 text-xs text-blue-200">
-              Caricamento scarpa (fitting)…
+              Caricamento scarpa (STL / GLB)…
             </div>
           </Html>
         }
       >
-        <Environment preset="studio" intensity={0.55} />
-        <ShoeOverlay shoeUrl={shoeUrl} metrics={metrics} opacity={shoeOpacity} />
+        <Environment preset="studio" intensity={0.45} />
+        {isStl ? (
+          <StlBambuShoe url={shoeUrl} baseOpacity={shoeOpacity} />
+        ) : (
+          <ShoeOverlay shoeUrl={shoeUrl} metrics={metrics} opacity={shoeOpacity} />
+        )}
       </Suspense>
-      <OrbitControls enablePan={false} minDistance={0.35} maxDistance={1.4} target={[0, 0.06, 0]} />
+      <OrbitControls enablePan={false} minDistance={0.35} maxDistance={1.45} target={[0, 0.06, 0]} />
     </>
   );
 }
 
+/** Default: metti il tuo file in `public/models/` e allinea il nome. */
+const DEFAULT_SHOE_MODEL = "/models/scarpa.stl";
+
 export default function DigitalFittingViewer({
   shoeTransparencyPercent,
   metrics = { footLengthMm: 265, forefootWidthMm: 95 },
-  shoeUrl = "/models/placeholder_sneaker.glb",
+  shoeUrl = DEFAULT_SHOE_MODEL,
   className = "h-full min-h-[280px] w-full",
 }: DigitalFittingViewerProps) {
   return (
