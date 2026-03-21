@@ -59,6 +59,10 @@
     @apply min-h-[100dvh] bg-background font-sans text-foreground antialiased;
     margin: 0;
   }
+
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
 @layer utilities {
@@ -140,4 +144,58 @@
 
 .hero-vivo-dot {
   animation: hero-vivo-dot-pulse 2.4s ease-in-out infinite;
+}
+
+/* Hero: immagine piedi + mesh — effetto “si sta modellando” */
+@keyframes hero-feet-scan-sweep {
+  0% {
+    transform: translateY(-120%);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(120%);
+    opacity: 0;
+  }
+}
+
+.hero-feet-scan-sweep {
+  animation: hero-feet-scan-sweep 4.5s ease-in-out infinite;
+}
+
+@keyframes hero-feet-mesh-breathe {
+  0%,
+  100% {
+    opacity: 0.88;
+    filter: brightness(1) contrast(1.02);
+  }
+  50% {
+    opacity: 1;
+    filter: brightness(1.06) contrast(1.05);
+  }
+}
+
+.hero-feet-mesh-breathe {
+  animation: hero-feet-mesh-breathe 3.2s ease-in-out infinite;
+}
+
+@keyframes hero-mesh-shimmer {
+  0% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.45;
+  }
+  100% {
+    opacity: 0.15;
+  }
+}
+
+.hero-mesh-shimmer-layer {
+  animation: hero-mesh-shimmer 2.8s ease-in-out infinite;
 }

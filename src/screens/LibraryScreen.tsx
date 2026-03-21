@@ -4,7 +4,6 @@ import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, ChevronDown, Plus, MoreHorizontal, X, CheckCircle2 } from "lucide-react";
 import HomeScanHero from "../components/HomeScanHero";
-import BarefootBenefitsSection from "../components/BarefootBenefitsSection";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardFooter } from "../components/ui/card";
@@ -152,9 +151,7 @@ export default function LibraryScreen({ onOpenScanner }: LibraryScreenProps) {
       <div className="px-5 pt-5">
         <HomeScanHero onOpenScanner={onOpenScanner} />
 
-        <BarefootBenefitsSection />
-
-        <h1 className="mt-4 text-2xl font-bold tracking-tight text-zinc-100">Le tue scansioni</h1>
+        <h1 className="mt-6 text-2xl font-bold tracking-tight text-zinc-100">Le tue scansioni</h1>
 
         <div className="relative mt-4">
           <div className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-zinc-500">
