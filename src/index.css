@@ -147,25 +147,27 @@
 }
 
 /* Hero: immagine piedi + mesh — effetto “si sta modellando” */
+/* Un solo fascio verticale, lento e morbido (niente doppia linea con hero-vivo) */
 @keyframes hero-feet-scan-sweep {
   0% {
-    transform: translateY(-120%);
+    transform: translateY(-115%);
     opacity: 0;
   }
-  12% {
-    opacity: 1;
+  10% {
+    opacity: 0.85;
   }
-  88% {
-    opacity: 1;
+  90% {
+    opacity: 0.85;
   }
   100% {
-    transform: translateY(120%);
+    transform: translateY(115%);
     opacity: 0;
   }
 }
 
 .hero-feet-scan-sweep {
-  animation: hero-feet-scan-sweep 4.5s ease-in-out infinite;
+  animation: hero-feet-scan-sweep 5.2s ease-in-out infinite;
+  will-change: transform;
 }
 
 @keyframes hero-feet-mesh-breathe {

@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { motion } from "framer-motion";
 import { cn } from "../lib/utils";
 
 /** Striscia orizzontale: 5 pannelli uguali (screenshot composito) */
@@ -62,20 +63,22 @@ const BENEFITS: {
  */
 function BenefitStripPanel({ panelIndex, alt }: { panelIndex: number; alt: string }) {
   return (
-    <div className="relative isolate h-full min-h-[200px] w-full overflow-hidden rounded-lg bg-gradient-to-b from-zinc-50 to-zinc-200">
-      <img
-        src={BENEFITS_STRIP_IMG}
-        alt={alt}
-        width={2500}
-        height={500}
-        className="absolute left-0 top-0 h-full w-[500%] max-w-none object-cover object-center brightness-[1.12] contrast-[1.15] saturate-[1.05]"
-        style={{
-          transform: `translateX(-${panelIndex * 20}%)`,
-        }}
-        loading="lazy"
-        decoding="async"
-      />
-      <div className="pointer-events-none absolute inset-0 rounded-lg ring-1 ring-inset ring-zinc-400/20 shadow-[inset_0_0_24px_rgba(255,255,255,0.35)]" />
+    <div className="relative h-full min-h-[200px] w-full rounded-lg bg-zinc-800/90 p-[3px] shadow-inner shadow-black/40 ring-1 ring-zinc-700/80">
+      <div className="relative isolate h-full min-h-[196px] w-full overflow-hidden rounded-md bg-gradient-to-b from-zinc-200 to-zinc-300/95">
+        <img
+          src={BENEFITS_STRIP_IMG}
+          alt={alt}
+          width={2500}
+          height={500}
+          className="absolute left-0 top-0 h-full w-[500%] max-w-none origin-center object-cover object-[center_38%] brightness-[1.08] contrast-[1.12] saturate-[1.03]"
+          style={{
+            transform: `translateX(-${panelIndex * 20}%) scale(1.04)`,
+          }}
+          loading="lazy"
+          decoding="async"
+        />
+        <div className="pointer-events-none absolute inset-0 rounded-md ring-1 ring-inset ring-black/10 shadow-[inset_0_0_20px_rgba(15,23,42,0.08)]" />
+      </div>
     </div>
   );
 }
@@ -92,31 +95,37 @@ export default function BarefootBenefitsSection({ className }: BarefootBenefitsS
     <section
       id="benefici-piede"
       className={cn(
-        "scroll-mt-24 border-t border-zinc-800/80 bg-zinc-950 px-5 pb-8 pt-10 text-zinc-50 sm:scroll-mt-28",
+        "scroll-mt-24 border-t border-zinc-800/80 bg-zinc-950 px-5 pb-8 pt-10 sm:scroll-mt-28",
+        /* Colori espliciti: evita testo grigio su nero se il cascade CSS cambia */
+        "[&_article]:text-[#fafafa]",
         className
       )}
       aria-labelledby="barefoot-benefits-heading"
     >
       <h2
         id="barefoot-benefits-heading"
-        className="mb-8 max-w-3xl text-2xl font-semibold tracking-tight text-white sm:text-3xl"
+        className="mb-8 max-w-3xl text-2xl font-semibold tracking-tight !text-[#fafafa] sm:text-3xl"
       >
         I benefici del vivere a piedi nudi
       </h2>
 
       <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 xl:grid-cols-5 xl:gap-6">
-        {BENEFITS.map(({ id, panelIndex, label, title, body, imageAlt }) => (
-          <article
+        {BENEFITS.map(({ id, panelIndex, label, title, body, imageAlt }, i) => (
+          <motion.article
             key={id}
-            className="flex flex-col border-b border-zinc-800/60 pb-8 text-zinc-50 last:border-b-0 sm:border-b-0 sm:pb-0 xl:border-0"
+            initial={{ opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-40px" }}
+            transition={{ duration: 0.45, delay: i * 0.05, ease: [0.22, 1, 0.36, 1] }}
+            className="flex flex-col border-b border-zinc-800/60 pb-8 last:border-b-0 sm:border-b-0 sm:pb-0 xl:border-0"
           >
-            <div className="relative mb-4 aspect-square w-full overflow-hidden rounded-lg border border-zinc-600/90 shadow-md shadow-black/40 ring-1 ring-white/10">
+            <div className="relative mb-4 aspect-square w-full overflow-hidden rounded-xl shadow-lg shadow-black/50">
               <BenefitStripPanel panelIndex={panelIndex} alt={imageAlt} />
             </div>
-            <p className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-sky-300">{label}</p>
-            <h3 className="mb-2 text-base font-semibold leading-snug text-white">{title}</h3>
-            <p className="text-sm leading-relaxed text-zinc-200">{body}</p>
-          </article>
+            <p className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-wider !text-sky-300">{label}</p>
+            <h3 className="mb-2 text-base font-semibold leading-snug !text-[#fafafa]">{title}</h3>
+            <p className="text-sm font-normal leading-relaxed !text-[#e4e4e7]">{body}</p>
+          </motion.article>
         ))}
       </div>
     </section>

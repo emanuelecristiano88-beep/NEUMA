@@ -30,51 +30,53 @@ export default function HomeScanHero({ onOpenScanner }: HomeScanHeroProps) {
       <div className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-b from-zinc-950 via-zinc-950/40 to-zinc-950" />
 
       <div className="relative z-10 flex min-h-[min(62dvh,560px)] flex-col items-center justify-center px-4 pb-6 pt-8 sm:min-h-[min(58dvh,520px)] sm:px-8">
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="hero-vivo-scan-beam absolute inset-x-0 top-0 h-[45%] bg-gradient-to-b from-transparent via-blue-500/25 to-transparent" />
-        </div>
-
         <motion.div
           className="relative w-full max-w-4xl"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
         >
-          {/* Pannello chiaro: senza mix-blend-multiply (su zinc-950 i piedi sparivano). */}
-          <div className="relative isolate mx-auto overflow-hidden rounded-2xl bg-gradient-to-b from-zinc-100 to-zinc-200/95 ring-1 ring-zinc-400/40 shadow-inner shadow-white/20">
-            <div className="relative flex items-center justify-center">
-              {/* Fascio di scansione verticale (effetto “sta scansionando / modellando”) */}
-              <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden">
-                <div className="hero-feet-scan-sweep absolute left-0 right-0 top-0 h-[38%] bg-gradient-to-b from-transparent via-blue-400/35 to-transparent blur-[1px]" />
+          {/*
+            Un solo effetto “scanner”: fascio blu morbido (niente seconda linea esterna + niente griglia animata).
+            Pannello: grigio‑chiaro + alone blu, meno “foglio bianco” rispetto a zinc‑100 pieno.
+          */}
+          <div className="relative isolate mx-auto overflow-hidden rounded-2xl border border-zinc-600/50 bg-gradient-to-br from-slate-200/95 via-zinc-100 to-slate-300/90 p-[2px] shadow-[0_24px_60px_-12px_rgba(15,23,42,0.45)] ring-1 ring-blue-500/15">
+            <div className="relative overflow-hidden rounded-[14px] bg-[linear-gradient(165deg,rgba(255,255,255,0.92)_0%,rgba(228,232,240,0.98)_45%,rgba(203,213,225,0.95)_100%)]">
+              <div className="pointer-events-none absolute inset-0 rounded-[14px] shadow-[inset_0_1px_0_rgba(255,255,255,0.65),inset_0_-32px_48px_rgba(15,23,42,0.06)]" />
+
+              <div className="relative flex items-center justify-center">
+                {/* Unico fascio di scansione (largo, sfocato) */}
+                <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden rounded-[14px]">
+                  <div className="hero-feet-scan-sweep absolute left-[-5%] right-[-5%] top-0 h-[52%] bg-gradient-to-b from-transparent via-sky-400/28 to-transparent blur-md" />
+                </div>
+
+                {/* Griglia CAD statica (nessuna animazione di opacità) */}
+                <div
+                  className="pointer-events-none absolute inset-0 z-10 opacity-[0.2]"
+                  style={{
+                    backgroundImage:
+                      "linear-gradient(rgba(59,130,246,0.35) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.3) 1px, transparent 1px)",
+                    backgroundSize: "14px 14px",
+                  }}
+                />
+
+                <img
+                  src={FEET_MESH_IMG}
+                  alt="Modello 3D di piedi con mesh di scansione digitale"
+                  width={1200}
+                  height={800}
+                  className="relative z-[1] h-auto w-full max-h-[min(52vh,420px)] object-contain object-center brightness-[1.05] contrast-[1.1] saturate-[1.03]"
+                  decoding="async"
+                />
+
+                <div className="pointer-events-none absolute inset-0 z-[2] rounded-[14px] shadow-[inset_0_0_70px_rgba(59,130,246,0.1)]" />
               </div>
-
-              {/* Strato mesh: griglia che pulsa sopra l’immagine (reforza effetto CAD) */}
-              <div
-                className="pointer-events-none absolute inset-0 z-10 opacity-[0.22] hero-mesh-shimmer-layer"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(rgba(59,130,246,0.45) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.4) 1px, transparent 1px)",
-                  backgroundSize: "14px 14px",
-                }}
-              />
-
-              <img
-                src={FEET_MESH_IMG}
-                alt="Modello 3D di piedi con mesh di scansione digitale"
-                width={1200}
-                height={800}
-                className="relative z-[1] h-auto w-full max-h-[min(52vh,420px)] object-contain object-center hero-feet-mesh-breathe brightness-[1.08] contrast-[1.12] saturate-[1.05]"
-                decoding="async"
-              />
-
-              {/* Alone blu leggero ai bordi */}
-              <div className="pointer-events-none absolute inset-0 z-[2] rounded-2xl shadow-[inset_0_0_80px_rgba(59,130,246,0.12)]" />
             </div>
           </div>
         </motion.div>
 
-        <p className="relative z-10 mt-3 max-w-lg text-center text-xs text-zinc-300">
-          Mesh e piedi su pannello chiaro per massimo contrasto; fascio blu simula la scansione.
+        <p className="relative z-10 mt-4 max-w-lg px-2 text-center text-xs font-medium leading-relaxed text-zinc-100 [text-shadow:0_1px_12px_rgba(0,0,0,0.85)]">
+          Mesh e piedi su pannello chiaro; un solo fascio blu animato simula la scansione.
         </p>
       </div>
 
