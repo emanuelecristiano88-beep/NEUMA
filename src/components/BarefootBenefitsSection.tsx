@@ -6,6 +6,9 @@ import { cn } from "../lib/utils";
 /** Striscia orizzontale: 5 pannelli uguali (screenshot composito) */
 const BENEFITS_STRIP_IMG = "/images/benefits-feet-strip.png";
 
+/** Stesso grigio della pagina (#e5e5e5 ≈ neutral-200) */
+const BENEFITS_BG = "#e5e5e5" as const;
+
 const BENEFITS: {
   id: number;
   panelIndex: number;
@@ -62,21 +65,30 @@ const BENEFITS: {
  */
 function BenefitStripPanel({ panelIndex, alt }: { panelIndex: number; alt: string }) {
   return (
-    <div className="relative h-full min-h-[200px] w-full rounded-lg border border-neutral-300 bg-neutral-200 p-[3px] shadow-sm">
-      <div className="relative isolate h-full min-h-[196px] w-full overflow-hidden rounded-md bg-neutral-200">
+    <div
+      className="relative h-full min-h-[200px] w-full overflow-hidden rounded-lg"
+      style={{ backgroundColor: BENEFITS_BG }}
+    >
+      <div
+        className="relative isolate h-full min-h-[196px] w-full overflow-hidden rounded-md"
+        style={{ backgroundColor: BENEFITS_BG }}
+      >
+        {/*
+          multiply: lo sfondo bianco della foto diventa ~#e5e5e5 come il resto della sezione
+          (stesso effetto di un PNG già esportato sul grigio pagina).
+        */}
         <img
           src={BENEFITS_STRIP_IMG}
           alt={alt}
           width={2500}
           height={500}
-          className="absolute left-0 top-0 h-full w-[500%] max-w-none origin-center object-cover object-[center_38%] brightness-[1.08] contrast-[1.12] saturate-[1.03]"
+          className="absolute left-0 top-0 h-full w-[500%] max-w-none origin-center object-cover object-[center_38%] mix-blend-multiply brightness-[1.05] contrast-[1.08] saturate-[1.02]"
           style={{
             transform: `translateX(-${panelIndex * 20}%) scale(1.04)`,
           }}
           loading="lazy"
           decoding="async"
         />
-        <div className="pointer-events-none absolute inset-0 rounded-md ring-1 ring-inset ring-neutral-300/80" />
       </div>
     </div>
   );
@@ -94,7 +106,8 @@ export default function BarefootBenefitsSection({ className }: BarefootBenefitsS
     <section
       id="benefici-piede"
       className={cn(
-        "barefoot-benefits scroll-mt-24 border-t border-neutral-300 bg-neutral-200 px-5 pb-8 pt-10 sm:scroll-mt-28",
+        "barefoot-benefits scroll-mt-24 border-t border-neutral-300 px-5 pb-8 pt-10 sm:scroll-mt-28",
+        "bg-[#e5e5e5] text-zinc-900",
         className
       )}
       aria-labelledby="barefoot-benefits-heading"
@@ -112,14 +125,17 @@ export default function BarefootBenefitsSection({ className }: BarefootBenefitsS
             key={id}
             className="benefit-card flex flex-col border-b border-neutral-300 pb-8 last:border-b-0 sm:border-b-0 sm:pb-0 xl:border-0"
           >
-            <div className="relative mb-4 aspect-square w-full overflow-hidden rounded-xl border border-neutral-200 bg-neutral-200 shadow-sm">
+            <div
+              className="relative mb-4 aspect-square w-full overflow-hidden rounded-xl shadow-sm"
+              style={{ backgroundColor: BENEFITS_BG }}
+            >
               <BenefitStripPanel panelIndex={panelIndex} alt={imageAlt} />
             </div>
-            <p className="benefit-label mb-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-blue-700">
+            <p className="benefit-label mb-2 font-mono text-[10px] font-semibold uppercase tracking-wider">
               {label}
             </p>
-            <h3 className="benefit-title mb-2 text-base font-semibold leading-snug text-zinc-900">{title}</h3>
-            <p className="benefit-body text-sm font-normal leading-relaxed text-zinc-700">{body}</p>
+            <h3 className="benefit-title mb-2 text-base font-semibold leading-snug">{title}</h3>
+            <p className="benefit-body text-sm font-normal leading-relaxed">{body}</p>
           </article>
         ))}
       </div>

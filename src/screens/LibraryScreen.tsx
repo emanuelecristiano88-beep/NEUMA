@@ -190,7 +190,11 @@ export default function LibraryScreen({ onOpenScanner }: LibraryScreenProps) {
                       <img
                         src={shoe.previewSrc}
                         alt={shoe.name}
-                        className="max-h-full max-w-full object-contain object-center"
+                        className={cn(
+                          "max-h-full max-w-full object-contain object-center",
+                          /** PNG con sfondo nero: fondi con il grigio della card (stesso risultato visivo di uno sfondo #e5e5e5) */
+                          shoe.previewMergeBlackWithCard && "mix-blend-screen"
+                        )}
                         loading="lazy"
                       />
                     ) : null}
