@@ -19,6 +19,7 @@ import {
   serializeBiometryForMac,
   type NeumaBiometryResult,
 } from "./lib/biometry";
+import { mergeBiometryPayloadWithUserProfile } from "./lib/neumaUserProfileV2";
 import type { Mat3 } from "./lib/biometry/homography";
 import { Smartphone } from "lucide-react";
 
@@ -738,7 +739,7 @@ export default function ScannerCattura() {
         body: JSON.stringify({
           scanId: sid,
           biometryJson: raw,
-          biometryPayload: biometryResult.exportPayload,
+          biometryPayload: mergeBiometryPayloadWithUserProfile(biometryResult.exportPayload),
           source: "scanner_biometry_v1",
         }),
       });
@@ -757,11 +758,11 @@ export default function ScannerCattura() {
   };
 
   const techBadgeClass =
-    "rounded-xl border border-white/10 bg-black/40 px-3 py-2 font-mono text-[10px] tracking-[0.16em] text-zinc-300 backdrop-blur-md";
+    "rounded-xl border border-white/10 bg-black/50 px-3 py-2 font-mono text-[10px] tracking-[0.16em] text-zinc-300";
   const accentBadgeClass = "text-blue-500";
 
   const phaseCardClass =
-    "w-full max-w-xl rounded-2xl border border-zinc-800 bg-zinc-900/90 p-6 shadow-xl shadow-black/40 backdrop-blur-md";
+    "w-full max-w-xl rounded-2xl border border-zinc-800 bg-zinc-900/90 p-6 shadow-xl shadow-black/40";
 
   return (
     <div className="relative h-[100dvh] w-screen overflow-hidden bg-black">
@@ -804,7 +805,7 @@ export default function ScannerCattura() {
       )}
 
       {tooTilted && (cameraState === "readyPhase" || cameraState === "capturingPhase") && (
-        <div className="pointer-events-none absolute inset-0 z-[60] flex flex-col items-center justify-center bg-black/55 px-6 backdrop-blur-[2px]">
+        <div className="pointer-events-none absolute inset-0 z-[60] flex flex-col items-center justify-center bg-black/50 px-6">
           <motion.div
             animate={{ rotate: [28, 0, 28] }}
             transition={{ duration: 1.85, repeat: Infinity, ease: "easeInOut" }}
@@ -826,46 +827,63 @@ export default function ScannerCattura() {
         transition={{ duration: 0.06, ease: "easeOut" }}
         className="absolute inset-0 z-50"
       >
-        {/* corner tech badges */}
-        <div className="pointer-events-none absolute left-0 top-0 z-60 flex w-full items-start justify-between px-4 py-3">
-          <div className={`${techBadgeClass}`}>
-            UNIT: SCANNER_V1 / TORINO_IT
-          </div>
-          <div className={`${techBadgeClass}`}>
-            <span className={accentBadgeClass}>SCAN</span>: {scanId ? scanId.slice(0, 8) : "—"}
+        {/* Angoli: info compatte (FOTO ACQUISITE in alto a sinistra, piccolo) */}
+        <div className="pointer-events-none absolute left-0 top-0 z-[85] flex max-w-[min(85vw,280px)] flex-col gap-1.5 px-3 pt-[max(0.5rem,env(safe-area-inset-top))]">
+          <div className={`${techBadgeClass} py-1.5 text-[9px]`}>UNIT: SCANNER_V1</div>
+          {(cameraState === "capturingPhase" || cameraState === "readyPhase") && (
+            <div className="font-mono text-[10px] font-bold uppercase leading-tight tracking-[0.08em] text-zinc-300">
+              {formatCounter(activePhotosCount, TOTAL_PHOTOS)}
+            </div>
+          )}
+          {(cameraState === "capturingPhase" || cameraState === "readyPhase") && (
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+              {currentFoot === "LEFT" ? "Piede sinistro" : "Piede destro"}
+            </div>
+          )}
+          {cameraState !== "capturingPhase" && cameraState !== "readyPhase" ? (
+            <div className={`${techBadgeClass} py-1.5 text-[9px] text-zinc-500`}>NEUMA · PHOTOGRAMMETRY</div>
+          ) : null}
+        </div>
+        <div className="pointer-events-none absolute right-0 top-0 z-[85] flex flex-col items-end gap-1.5 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] text-right">
+          <div className={`${techBadgeClass} py-1.5 text-[9px]`}>
+            <span className={accentBadgeClass}>SCAN</span> {scanId ? scanId.slice(0, 8) : "—"}
           </div>
         </div>
-        <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-60 flex items-end justify-between px-4 pb-4">
-          <div className={`${techBadgeClass}`}>
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-60 flex items-end justify-between px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className={`${techBadgeClass} py-1.5 text-[9px]`}>
             TIMER: {cameraState === "capturingPhase" ? formatMmSs(timerSeconds) : "—"}
           </div>
-          <div className={`${techBadgeClass}`}>
+          <div className={`${techBadgeClass} py-1.5 text-[9px]`}>
             FPS: {cameraState === "capturingPhase" ? String(fps || "--") : "--"}
           </div>
         </div>
 
-        {/* Etichetta piede + contatore foto piede corrente */}
-        <div className="pointer-events-none absolute left-0 right-0 top-0 z-[85] flex flex-col items-center gap-2 px-4 pt-3">
-          {(cameraState === "capturingPhase" || cameraState === "readyPhase") && (
-            <div
+        {/* Istruzione fase: grande, leggibile, fascia scura semitrasparente (non a tutto schermo) */}
+        {(cameraState === "readyPhase" || cameraState === "capturingPhase") && alignment.guide === "too_close" && (
+          <div className="pointer-events-none absolute left-3 top-[6.25rem] z-[86] max-w-[min(90vw,340px)] rounded-lg border border-amber-500/50 bg-amber-950/70 px-3 py-2 text-[11px] font-semibold uppercase leading-snug tracking-wide text-amber-100 shadow-lg sm:text-xs">
+            ALLONTANATI — Il foglio deve essere interamente visibile
+          </div>
+        )}
+        {(cameraState === "readyPhase" || cameraState === "capturingPhase") && alignment.guide === "aligned" && (
+          <div className="pointer-events-none absolute left-3 top-[6.25rem] z-[86] rounded-lg border border-emerald-500/45 bg-emerald-950/60 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-100">
+            Posizione ottimale
+          </div>
+        )}
+
+        {(cameraState === "readyPhase" || cameraState === "capturingPhase") && (
+          <div className="pointer-events-none absolute bottom-[7.5rem] left-1/2 z-[58] w-[min(96vw,560px)] max-w-[100vw] -translate-x-1/2 px-3 sm:bottom-[8.25rem]">
+            <p
               className={cn(
-                "rounded-lg border px-4 py-2 font-mono text-[11px] font-bold uppercase tracking-[0.2em] shadow-lg backdrop-blur-md",
-                "border-white/10 bg-black/40 text-zinc-100 shadow-black/30"
+                "rounded-2xl border border-white/10 px-4 py-3 text-center font-semibold leading-snug text-white shadow-lg",
+                "bg-black/40 text-base sm:text-xl sm:leading-normal"
               )}
             >
-              {currentFoot === "LEFT" ? "SCANSIONE PIEDE: SINISTRO" : "SCANSIONE PIEDE: DESTRO"}
-            </div>
-          )}
-          <div className="flex justify-center pt-1">
-            {cameraState === "capturingPhase" || cameraState === "readyPhase" ? (
-              <div className={`${techBadgeClass} ${accentBadgeClass}`}>
-                {formatCounter(activePhotosCount, TOTAL_PHOTOS)}
-              </div>
-            ) : (
-              <div className={techBadgeClass}>NEUMA // PHOTOGRAMMETRY</div>
-            )}
+              {cameraState === "capturingPhase"
+                ? "Acquisizione in corso… mantieni il telefono stabile."
+                : phase.instruction}
+            </p>
           </div>
-        </div>
+        )}
 
         {/* phase content */}
         <AnimatePresence mode="wait">
@@ -1006,14 +1024,11 @@ export default function ScannerCattura() {
             transition={{ duration: 0.25, ease: "easeOut" }}
             className="absolute bottom-0 left-0 right-0 z-[55] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2"
           >
-            <div className="rounded-t-2xl border border-white/10 bg-black/40 px-4 pb-5 pt-4 shadow-2xl backdrop-blur-md">
+            <div className="rounded-t-2xl border border-white/10 bg-black/70 px-4 pb-5 pt-4 shadow-xl backdrop-blur-[2px]">
               <div className="text-center font-mono text-[10px] uppercase tracking-[0.22em] text-sky-400/95">
                 {overlayStep}
               </div>
-              <p className="mt-2 text-center text-sm leading-snug text-zinc-100/95">
-                {cameraState === "capturingPhase" ? "Acquisizione in corso…" : phase.instruction}
-              </p>
-              <div className="mt-2 flex items-center justify-center gap-4 font-mono text-[10px] tracking-wide text-zinc-400">
+              <div className="mt-3 flex items-center justify-center gap-4 font-mono text-[10px] tracking-wide text-zinc-400">
                 <span>
                   Set: {capturedInPhase}/{PHOTOS_PER_PHASE}
                 </span>

@@ -16,11 +16,13 @@ import {
 } from "lucide-react";
 import ScannerCattura from "./ScannerCattura";
 import LibraryScreen from "./screens/LibraryScreen";
+import NeumaOnboarding from "./components/NeumaOnboarding";
 import ScanTutorialModal from "./components/ScanTutorialModal";
 import { Button } from "./components/ui/button";
 import { Dialog, DialogContent } from "./components/ui/dialog";
 import { cn } from "./lib/utils";
 import { NEUMA_UI_BUILD_ID } from "./config/build";
+import { isOnboardingV2Complete } from "./lib/neumaUserProfileV2";
 import NeumaLogo from "./components/NeumaLogo";
 
 type TabId = "library" | "albums" | "explore" | "menu";
@@ -178,19 +180,33 @@ export default function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const [tab, setTab] = useState<TabId>("library");
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
 
-  /** Da /prepara-scansione: apri automaticamente il tutorial dopo il consenso. */
+  /** Da /prepara-scansione: onboarding (se necessario) → tutorial → scanner. */
   useEffect(() => {
     const st = location.state as { autoStartScan?: boolean } | null | undefined;
     if (st?.autoStartScan) {
-      setTutorialOpen(true);
+      if (isOnboardingV2Complete()) {
+        setTutorialOpen(true);
+      } else {
+        setOnboardingOpen(true);
+      }
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state, location.pathname, navigate]);
 
   const openScannerFlow = () => {
+    if (isOnboardingV2Complete()) {
+      setTutorialOpen(true);
+      return;
+    }
+    setOnboardingOpen(true);
+  };
+
+  const finishOnboardingAndOpenTutorial = () => {
+    setOnboardingOpen(false);
     setTutorialOpen(true);
   };
 
@@ -207,6 +223,12 @@ export default function AppShell() {
       {tab === "menu" ? <MenuScreen onOpenScanner={openScannerFlow} /> : null}
 
       <BottomNav tab={tab} setTab={setTab} />
+
+      <NeumaOnboarding
+        open={onboardingOpen}
+        onOpenChange={setOnboardingOpen}
+        onComplete={finishOnboardingAndOpenTutorial}
+      />
 
       <ScanTutorialModal open={tutorialOpen} onDismiss={finishTutorialAndStartScan} />
 

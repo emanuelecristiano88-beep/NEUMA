@@ -41,7 +41,11 @@ export default async function handler(request: Request): Promise<Response> {
       console.log("  biometryJson length:", body.biometryJson.length, "chars");
     }
     if (body.biometryPayload && typeof body.biometryPayload === "object") {
-      console.log("  biometryPayload.schema:", (body.biometryPayload as { schema?: string }).schema ?? "?");
+      const p = body.biometryPayload as { schema?: string; user_profile_v2?: { version?: number } };
+      console.log("  biometryPayload.schema:", p.schema ?? "?");
+      if (p.user_profile_v2) {
+        console.log("  biometryPayload.user_profile_v2.version:", p.user_profile_v2.version ?? "?");
+      }
     }
     console.log("  tagliaScelta:", body.tagliaScelta ?? "(mancante)");
     console.log("  coloreSelezionato:", body.coloreSelezionato ?? "(mancante)");
