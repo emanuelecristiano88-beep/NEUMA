@@ -10,7 +10,9 @@ import { cn } from "./lib/utils";
 import { PAIR_STORAGE_KEY, SCAN_METRICS_STORAGE_KEY } from "./constants/scan";
 import { useScanAlignmentAnalysis } from "./hooks/useScanAlignmentAnalysis";
 import { requestOrientationAccess, useDeviceTilt } from "./hooks/useDeviceTilt";
+import { useScanFrameOrientation } from "./hooks/useScanFrameOrientation";
 import ScannerAlignmentOverlay from "./components/scanner/ScannerAlignmentOverlay";
+import ScannerPhaseGuidePanel from "./components/scanner/ScannerPhaseGuidePanel";
 import ArucoMarkerPins from "./components/scanner/ArucoMarkerPins";
 import ScannerShutterButton from "./components/scanner/ScannerShutterButton";
 import BiometryOverlayPreview from "./components/scanner/BiometryOverlayPreview";
@@ -241,6 +243,8 @@ export default function ScannerCattura() {
   const [phaseIndex, setPhaseIndex] = useState<PhaseId>(0);
   const phase = PHASES[phaseIndex];
   const [capturedInPhase, setCapturedInPhase] = useState<number>(0);
+  /** Dopo il pannello illustrativo per la fase corrente */
+  const [phaseGuideAccepted, setPhaseGuideAccepted] = useState(false);
 
   const photos = useMemo(() => [...photosLeft, ...photosRight], [photosLeft, photosRight]);
   const activePhotosCount = currentFoot === "LEFT" ? photosLeft.length : photosRight.length;
@@ -303,9 +307,18 @@ export default function ScannerCattura() {
     };
   }, [pairComplete, photosLeft]);
 
-  const scanOverlayEnabled = cameraState === "readyPhase" || cameraState === "capturingPhase";
+  const scanOverlayEnabled =
+    (cameraState === "readyPhase" || cameraState === "capturingPhase") && phaseGuideAccepted;
   const alignment = useScanAlignmentAnalysis(videoRef, scanOverlayEnabled, phaseIndex);
-  const { tooTilted } = useDeviceTilt(scanOverlayEnabled, 45);
+  const frameTilt = useScanFrameOrientation(scanOverlayEnabled);
+  const { tooTilted } = useDeviceTilt(
+    (cameraState === "readyPhase" || cameraState === "capturingPhase") && phaseGuideAccepted,
+    45
+  );
+
+  useEffect(() => {
+    setPhaseGuideAccepted(false);
+  }, [phaseIndex, currentFoot]);
 
   useEffect(() => {
     const prev = prevCameraStateRef.current;
@@ -548,6 +561,7 @@ export default function ScannerCattura() {
 
   const startPhaseCapture = () => {
     if (!videoRef.current) return;
+    if (!phaseGuideAccepted) return;
     if (cameraState === "capturingPhase") return;
     if (capturePhaseLockRef.current) return;
     capturePhaseLockRef.current = true;
@@ -591,11 +605,12 @@ export default function ScannerCattura() {
 
   useEffect(() => {
     if (cameraState !== "readyPhase") return;
+    if (!phaseGuideAccepted) return;
     if (alignment.stableAlignedMs < 1000) return;
     if (autoStartedPhaseRef.current === phaseIndex) return;
     if (!videoRef.current) return;
     startPhaseCaptureRef.current();
-  }, [cameraState, alignment.stableAlignedMs, phaseIndex]);
+  }, [cameraState, alignment.stableAlignedMs, phaseIndex, phaseGuideAccepted]);
 
   // stop phase when reached 8
   useEffect(() => {
@@ -789,11 +804,24 @@ export default function ScannerCattura() {
         <div key={flashNonce} className="flash-border pointer-events-none" />
       )}
 
-      {/* Overlay: bounding box + marker angoli + guida (rilevamento da frame video, estendibile con OpenCV ArUco) */}
-      {(cameraState === "readyPhase" || cameraState === "capturingPhase") && (
+      {/* Pannello illustrativo prima di ogni fase (cliente + operatore) */}
+      {cameraState === "readyPhase" && !phaseGuideAccepted ? (
+        <ScannerPhaseGuidePanel
+          phaseId={phaseIndex}
+          foot={currentFoot}
+          onContinue={() => setPhaseGuideAccepted(true)}
+        />
+      ) : null}
+
+      {/* Overlay: bbox che segue il giroscopio + marker ArUco — solo dopo conferma guida */}
+      {scanOverlayEnabled ? (
         <>
           <div className="pointer-events-none absolute inset-0 z-10 flex flex-col">
-            <ScannerAlignmentOverlay alignment={alignment} />
+            <ScannerAlignmentOverlay
+              alignment={alignment}
+              frameTilt={frameTilt}
+              phaseIndex={phaseIndex}
+            />
           </div>
           <ArucoMarkerPins
             videoRef={videoRef}
@@ -802,9 +830,11 @@ export default function ScannerCattura() {
             visible={alignment.markerCentersNorm != null && alignment.markerCentersNorm.length >= 4}
           />
         </>
-      )}
+      ) : null}
 
-      {tooTilted && (cameraState === "readyPhase" || cameraState === "capturingPhase") && (
+      {tooTilted &&
+        (cameraState === "readyPhase" || cameraState === "capturingPhase") &&
+        phaseGuideAccepted && (
         <div className="pointer-events-none absolute inset-0 z-[60] flex flex-col items-center justify-center bg-black/50 px-6">
           <motion.div
             animate={{ rotate: [28, 0, 28] }}
@@ -859,18 +889,22 @@ export default function ScannerCattura() {
         </div>
 
         {/* Istruzione fase: grande, leggibile, fascia scura semitrasparente (non a tutto schermo) */}
-        {(cameraState === "readyPhase" || cameraState === "capturingPhase") && alignment.guide === "too_close" && (
+        {(cameraState === "readyPhase" || cameraState === "capturingPhase") &&
+          phaseGuideAccepted &&
+          alignment.guide === "too_close" && (
           <div className="pointer-events-none absolute left-3 top-[6.25rem] z-[86] max-w-[min(90vw,340px)] rounded-lg border border-amber-500/50 bg-amber-950/70 px-3 py-2 text-[11px] font-semibold uppercase leading-snug tracking-wide text-amber-100 shadow-lg sm:text-xs">
             ALLONTANATI — Il foglio deve essere interamente visibile
           </div>
         )}
-        {(cameraState === "readyPhase" || cameraState === "capturingPhase") && alignment.guide === "aligned" && (
+        {(cameraState === "readyPhase" || cameraState === "capturingPhase") &&
+          phaseGuideAccepted &&
+          alignment.guide === "aligned" && (
           <div className="pointer-events-none absolute left-3 top-[6.25rem] z-[86] rounded-lg border border-emerald-500/45 bg-emerald-950/60 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-100">
             Posizione ottimale
           </div>
         )}
 
-        {(cameraState === "readyPhase" || cameraState === "capturingPhase") && (
+        {(cameraState === "readyPhase" || cameraState === "capturingPhase") && phaseGuideAccepted && (
           <div className="pointer-events-none absolute bottom-[7.5rem] left-1/2 z-[58] w-[min(96vw,560px)] max-w-[100vw] -translate-x-1/2 px-3 sm:bottom-[8.25rem]">
             <p
               className={cn(
@@ -1016,7 +1050,7 @@ export default function ScannerCattura() {
 
         </AnimatePresence>
 
-        {(cameraState === "readyPhase" || cameraState === "capturingPhase") && (
+        {(cameraState === "readyPhase" || cameraState === "capturingPhase") && phaseGuideAccepted && (
           <motion.div
             key={`scan-bar-${phaseIndex}-${cameraState}`}
             initial={{ opacity: 0, y: 20 }}
@@ -1049,7 +1083,7 @@ export default function ScannerCattura() {
                 </div>
                 <ScannerShutterButton
                   progress={activePhotosCount / TOTAL_PHOTOS}
-                  onClick={cameraState === "readyPhase" ? startPhaseCapture : undefined}
+                  onClick={cameraState === "readyPhase" && phaseGuideAccepted ? startPhaseCapture : undefined}
                   disabled={cameraState === "capturingPhase"}
                   capturing={cameraState === "capturingPhase"}
                   label={
