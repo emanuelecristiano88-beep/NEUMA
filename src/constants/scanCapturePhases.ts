@@ -73,9 +73,11 @@ export const SCAN_PHASE_GUIDE_COPY: Record<ScanPhaseId, ScanPhaseGuideCopy> = {
   },
 };
 
-/** Fasi con screenshot reale in `public/scan-guides/phase-{id}.png` (le altre restano SVG). */
+/** Screenshot di riferimento in `public/scan-guides/phase-{0..3}.png` (fallback SVG se mancanti). */
 export const SCAN_PHASE_RASTER: Partial<Record<ScanPhaseId, string>> = {
   0: "/scan-guides/phase-0.png",
+  1: "/scan-guides/phase-1.png",
+  2: "/scan-guides/phase-2.png",
   3: "/scan-guides/phase-3.png",
 };
 
@@ -92,12 +94,12 @@ export const SCAN_PHASE_REFERENCE_PHOTO: Record<
       "Piede fermo sul foglio · telefono sopra la pianta: punta, avampiede e contorni ben visibili; griglia e 4 marker nel frame.",
   },
   1: {
-    alt: "Illustrazione vista laterale esterna: profilo dal lato mignolo, telefono basso",
+    alt: "Schermata di esempio vista laterale esterna: profilo lato mignolo, cornice blu e marker evidenziati",
     caption:
-      "Telefono basso, quasi all’altezza del pavimento · inquadra il profilo esterno (mignolo) con foglio e marker ancora visibili.",
+      "Telefono basso, quasi all’altezza del pavimento · inquadra il profilo esterno (mignolo) con foglio e 4 marker nel frame.",
   },
   2: {
-    alt: "Illustrazione vista laterale interna: arco plantare e percorso ad arco del telefono",
+    alt: "Schermata di esempio vista laterale interna: arco plantare, cornice blu e marker agli angoli",
     caption:
       "Dal lato interno del piede · segui l’arco dell’arco plantare; mantieni griglia e marker allineati come in figura.",
   },

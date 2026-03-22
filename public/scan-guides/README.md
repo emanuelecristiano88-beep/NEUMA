@@ -1,8 +1,12 @@
-# Guide fasi scanner — asset opzionali
+# Guide fasi scanner — screenshot di riferimento
 
-- **`phase-0.png`** — Fase **1/4** (vista dall’alto): screenshot di riferimento reale.  
-- **`phase-3.png`** — Fase **4/4** (posteriore / tallone): screenshot di riferimento reale.  
+File in questa cartella (`phase-0.png` … `phase-3.png`), usati nel pannello pre-fase e nella guida web:
 
-Le fasi **2** e **3** usano solo illustrazioni SVG generate in `ScanPhaseGuideIllustration.tsx`.
+| File | Fase app | Contenuto |
+|------|----------|-----------|
+| `phase-0.png` | 1/4 | Vista dall’alto |
+| `phase-1.png` | 2/4 | Vista laterale esterna (mignolo) |
+| `phase-2.png` | 3/4 | Vista laterale interna — arco plantare |
+| `phase-3.png` | 4/4 | Vista posteriore / tallone |
 
-Se `phase-0.png` o `phase-3.png` mancano o non si caricano, l’app torna allo **schema vettoriale** per quella fase.
+Se un file manca o non si carica, quella fase usa l’**illustrazione SVG** di fallback nel codice.

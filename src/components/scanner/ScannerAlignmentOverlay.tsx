@@ -5,6 +5,48 @@ import type { ScanFrameTilt } from "../../hooks/useScanFrameOrientation";
 
 const ELECTRIC = "#2563eb";
 
+/** Bracket + quadratino agli angoli: allinea i 4 marker ArUco del foglio a questo riquadro blu */
+function ArucoCornerHint({
+  position,
+  locked,
+}: {
+  position: "tl" | "tr" | "bl" | "br";
+  locked: boolean;
+}) {
+  const ring = locked
+    ? "border-emerald-400/90 shadow-[0_0_10px_rgba(52,211,153,0.5)]"
+    : "border-white/[0.92] shadow-[0_1px_2px_rgba(0,0,0,0.2)]";
+  const sq = locked ? "border-emerald-300/80 bg-emerald-400/20" : "border-white/80 bg-white/10";
+
+  const outer = {
+    tl: "left-2.5 top-2.5",
+    tr: "right-2.5 top-2.5",
+    bl: "bottom-2.5 left-2.5",
+    br: "bottom-2.5 right-2.5",
+  }[position];
+
+  const bracket = {
+    tl: "rounded-tl-2xl border-l-[2.5px] border-t-[2.5px]",
+    tr: "rounded-tr-2xl border-r-[2.5px] border-t-[2.5px]",
+    bl: "rounded-bl-2xl border-b-[2.5px] border-l-[2.5px]",
+    br: "rounded-br-2xl border-b-[2.5px] border-r-[2.5px]",
+  }[position];
+
+  const squarePos = {
+    tl: "left-1 top-1",
+    tr: "right-1 top-1",
+    bl: "bottom-1 left-1",
+    br: "bottom-1 right-1",
+  }[position];
+
+  return (
+    <div className={cn("pointer-events-none absolute z-[5] h-[2.75rem] w-[2.75rem]", outer)}>
+      <div className={cn("relative h-11 w-11 border-transparent", bracket, ring)} />
+      <div className={cn("absolute h-3.5 w-3.5 rounded-sm border-[1.5px]", sq, squarePos)} />
+    </div>
+  );
+}
+
 export type PhaseIndexScan = 0 | 1 | 2 | 3;
 
 export type ScannerAlignmentOverlayProps = {
@@ -73,6 +115,13 @@ export default function ScannerAlignmentOverlay({
               )}
               aria-hidden
             >
+              <span className="sr-only">
+                Allinea i quattro marker ArUco stampati sugli angoli di questo riquadro blu.
+              </span>
+              <ArucoCornerHint position="tl" locked={arucoLocked} />
+              <ArucoCornerHint position="tr" locked={arucoLocked} />
+              <ArucoCornerHint position="bl" locked={arucoLocked} />
+              <ArucoCornerHint position="br" locked={arucoLocked} />
               <div className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
                 <svg
                   width="140"
