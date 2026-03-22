@@ -12,39 +12,120 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
  */
 const useDevHttps = process.env.DEV_HTTP !== '1'
 
-// In dev (solo Vite) intercetta POST /api/orders così fetch() funziona in locale.
-// In deploy (Vercel) usa /api/orders.ts (vedi root `api/`).
-function apiOrdersDevPlugin() {
+/**
+ * In dev (solo Vite) intercetta POST /api/* così fetch() non va in 404.
+ * Su Vercel usano le funzioni in root `api/`. Per test Drive reale: `vercel dev`.
+ */
+function apiDevRoutesPlugin() {
+  const devScanId = () => `dev-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+
   return {
-    name: 'api-orders-dev',
+    name: 'api-dev-routes',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = req.url?.split('?')[0] ?? ''
-        if (url !== '/api/orders' || req.method !== 'POST') {
+        if (req.method !== 'POST') {
           next()
           return
         }
-        let raw = ''
-        req.on('data', (c) => {
-          raw += c
-        })
-        req.on('end', () => {
-          try {
-            const parsed = raw ? JSON.parse(raw) : {}
-            console.log('[DEV Vite] POST /api/orders — ordine:', JSON.stringify(parsed, null, 2))
-          } catch {
-            console.warn('[DEV Vite] POST /api/orders — body non JSON')
-          }
-          res.statusCode = 200
-          res.setHeader('Content-Type', 'application/json')
-          res.end(
-            JSON.stringify({
-              ok: true,
-              orderId: `dev-${Date.now()}`,
-              message: 'Ordine simulato (Vite dev server)',
-            })
-          )
-        })
+
+        if (url === '/api/upload-operator-shot') {
+          req.on('data', () => {})
+          req.on('end', () => {
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/json')
+            res.end(
+              JSON.stringify({
+                ok: true,
+                driveUploaded: false,
+                message:
+                  'Vite dev: nessun upload. Configura Drive su Vercel o usa `vercel dev` con env.',
+              })
+            )
+          })
+          return
+        }
+
+        if (url === '/api/process-scan') {
+          req.on('data', () => {})
+          req.on('end', () => {
+            const scanId = devScanId()
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/json')
+            res.end(
+              JSON.stringify({
+                status: 'success',
+                scanId,
+                path: '/scans/dev',
+                receivedCount: 1,
+                savedCount: 1,
+                driveUploaded: false,
+                driveFolderId: null,
+                driveFolderLink: null,
+                driveFileIds: [],
+                scaleFactorApplied: 1.0,
+                scaleReferenceNote: 'Vite dev mock',
+                scaleReference: {
+                  type: 'coded_a4_target',
+                  shortSideMm: 210,
+                  markerBaselineMm: 210,
+                  detectionMode: 'aruco_a4',
+                },
+                message: 'Pronto per la ricostruzione 3D (NEUMA)',
+                metrics: {
+                  lunghezzaMm: 265,
+                  larghezzaMm: 95,
+                  altezzaArcoMm: 28,
+                  circonferenzaColloMm: 246,
+                  volumeCm3: 1450,
+                  left: {
+                    lunghezzaMm: 264,
+                    larghezzaMm: 98,
+                    altezzaArcoMm: 27,
+                    circonferenzaColloMm: 244,
+                    volumeCm3: 1420,
+                  },
+                  right: {
+                    lunghezzaMm: 267,
+                    larghezzaMm: 101,
+                    altezzaArcoMm: 29,
+                    circonferenzaColloMm: 248,
+                    volumeCm3: 1480,
+                  },
+                  scanVersion: 'V6',
+                },
+              })
+            )
+          })
+          return
+        }
+
+        if (url === '/api/orders') {
+          let raw = ''
+          req.on('data', (c) => {
+            raw += c
+          })
+          req.on('end', () => {
+            try {
+              const parsed = raw ? JSON.parse(raw) : {}
+              console.log('[DEV Vite] POST /api/orders — ordine:', JSON.stringify(parsed, null, 2))
+            } catch {
+              console.warn('[DEV Vite] POST /api/orders — body non JSON')
+            }
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/json')
+            res.end(
+              JSON.stringify({
+                ok: true,
+                orderId: `dev-${Date.now()}`,
+                message: 'Ordine simulato (Vite dev server)',
+              })
+            )
+          })
+          return
+        }
+
+        next()
       })
     },
   }
@@ -52,7 +133,7 @@ function apiOrdersDevPlugin() {
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), ...(useDevHttps ? [basicSsl()] : []), apiOrdersDevPlugin()],
+  plugins: [react(), ...(useDevHttps ? [basicSsl()] : []), apiDevRoutesPlugin()],
   /** WASM + import.meta.url nel pacchetto ArUco: evita pre-bundle che rompe il .wasm */
   optimizeDeps: {
     exclude: ['@ar-js-org/aruco-rs'],

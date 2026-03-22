@@ -9,6 +9,7 @@ import AdminThemePanel from './pages/AdminThemePanel'
 import GuidaStampaPage from './pages/GuidaStampaPage'
 import TecnologiaTpuPage from './pages/TecnologiaTpuPage'
 import PreparaScansionePage from './pages/PreparaScansionePage'
+import GuidaScansionePiedePage from './pages/GuidaScansionePiedePage'
 import ScannerOperatore from './components/ScannerOperatore'
 
 createRoot(document.getElementById('root')).render(
@@ -19,6 +20,7 @@ createRoot(document.getElementById('root')).render(
           <Route path="/guida-stampa" element={<GuidaStampaPage />} />
           <Route path="/tecnologia-tpu" element={<TecnologiaTpuPage />} />
           <Route path="/prepara-scansione" element={<PreparaScansionePage />} />
+          <Route path="/guida-scansione" element={<GuidaScansionePiedePage />} />
           <Route path="/scanner-operatore" element={<ScannerOperatore />} />
           <Route path="/admin/theme" element={<AdminThemePanel />} />
           <Route path="*" element={<AppShell />} />

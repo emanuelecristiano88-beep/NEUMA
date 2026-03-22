@@ -28,21 +28,51 @@ export type ScannerOperatoreProps = {
   debugOrientation?: boolean;
 };
 
-/** Stub upload Supabase — sostituire con @supabase/supabase-js + bucket */
-async function uploadShotToSupabaseStub(
-  _blob: Blob,
-  index: number,
+const UPLOAD_SECRET = import.meta.env.VITE_UPLOAD_API_SECRET as string | undefined;
+
+/** Upload singolo scatto su Google Drive (API Vercel `/api/upload-operator-shot`). */
+async function uploadOperatorShotToDrive(
+  blob: Blob,
+  sectorIndex: number,
+  sessionId: string,
   onProgress: (fraction: number) => void
 ): Promise<void> {
-  onProgress(0.15);
-  await new Promise((r) => setTimeout(r, 200 + Math.random() * 150));
-  onProgress(0.55);
-  await new Promise((r) => setTimeout(r, 180 + Math.random() * 200));
-  onProgress(0.92);
-  await new Promise((r) => setTimeout(r, 120));
+  onProgress(0.12);
+  const form = new FormData();
+  form.append("photo", blob, `sector_${String(sectorIndex).padStart(2, "0")}.jpg`);
+  form.append("sector", String(sectorIndex));
+  form.append("sessionId", sessionId);
+
+  const headers = new Headers();
+  if (UPLOAD_SECRET) headers.set("x-upload-secret", UPLOAD_SECRET);
+
+  onProgress(0.28);
+  const res = await fetch("/api/upload-operator-shot", {
+    method: "POST",
+    body: form,
+    headers,
+  });
+  onProgress(0.75);
+  const text = await res.text();
+  let data: { ok?: boolean; error?: string; driveUploaded?: boolean } | null = null;
+  try {
+    data = JSON.parse(text) as { ok?: boolean; error?: string; driveUploaded?: boolean };
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) {
+    throw new Error(data?.error || text || `HTTP ${res.status}`);
+  }
+  if (data && data.ok === false) {
+    throw new Error(data.error || "Upload fallito");
+  }
   onProgress(1);
-  if (import.meta.env?.DEV) {
-    console.log("[NEUMA ScannerOperatore] Upload simulato settore", index + 1);
+  if (import.meta.env.DEV) {
+    console.log(
+      "[NEUMA ScannerOperatore] Upload settore",
+      sectorIndex + 1,
+      data?.driveUploaded ? "→ Drive" : "(server senza Drive / mock)"
+    );
   }
 }
 
@@ -186,6 +216,7 @@ function distanceStatus(
 }
 
 export default function ScannerOperatore({ className, onDomeComplete, debugOrientation = false }: ScannerOperatoreProps) {
+  const sessionIdRef = useRef(crypto.randomUUID());
   const webcamRef = useRef<Webcam>(null);
   const [sectors, setSectors] = useState<SectorState[]>(() => Array.from({ length: DOME_SECTORS }, () => "pending"));
   const sectorsRef = useRef(sectors);
@@ -260,7 +291,7 @@ export default function ScannerOperatore({ className, onDomeComplete, debugOrien
       try {
         const res = await fetch(shot);
         const blob = await res.blob();
-        await uploadShotToSupabaseStub(blob, sectorIndex, setUploadProgress);
+        await uploadOperatorShotToDrive(blob, sectorIndex, sessionIdRef.current, setUploadProgress);
       } finally {
         setUploadBusy(false);
         setUploadProgress(0);
@@ -383,7 +414,7 @@ export default function ScannerOperatore({ className, onDomeComplete, debugOrien
         </div>
         <Upload className="h-6 w-6 text-[#2563eb]" aria-hidden />
         <span className="max-w-[4rem] text-center font-mono text-[8px] uppercase leading-tight text-white/80">
-          {uploadBusy ? "Invio…" : "Sync"}
+          {uploadBusy ? "Invio…" : "Drive"}
         </span>
       </div>
 

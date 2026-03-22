@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { Link } from "react-router-dom";
 import { Button } from "./ui/button";
 import { HoneycombLatticeVisual } from "./HoneycombLatticeVisual";
 import { ChevronDown, ScanLine } from "lucide-react";
@@ -55,13 +56,21 @@ export default function HomeScanHero({ onOpenScanner }: HomeScanHeroProps) {
               Scansiona ora
             </Button>
             <span className="text-center text-[11px] text-zinc-600 sm:text-right">TPU · stampa additiva · NEUMA</span>
-            <a
-              href="#benefici-piede"
-              className="inline-flex items-center justify-center gap-1 text-center text-sm font-medium text-blue-600 underline-offset-4 hover:text-blue-700 hover:underline sm:text-right"
-            >
-              Scopri i benefici
-              <ChevronDown className="h-4 w-4" aria-hidden />
-            </a>
+            <div className="flex flex-col gap-2 sm:items-end">
+              <a
+                href="#benefici-piede"
+                className="inline-flex items-center justify-center gap-1 text-center text-sm font-medium text-blue-600 underline-offset-4 hover:text-blue-700 hover:underline sm:text-right"
+              >
+                Scopri i benefici
+                <ChevronDown className="h-4 w-4" aria-hidden />
+              </a>
+              <Link
+                to="/guida-scansione"
+                className="text-center text-[11px] font-medium text-zinc-600 underline-offset-4 hover:text-blue-600 hover:underline sm:text-right"
+              >
+                Prima volta? Guida alla scansione del piede
+              </Link>
+            </div>
           </div>
         </div>
         </div>

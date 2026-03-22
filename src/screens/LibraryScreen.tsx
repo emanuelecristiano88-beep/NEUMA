@@ -168,7 +168,7 @@ export default function LibraryScreen({ onOpenScanner }: LibraryScreenProps) {
     <div className="min-h-[100dvh] bg-neutral-200 pb-28 text-zinc-900">
       <div className="px-5 pt-5">
         <header className="mb-2 flex items-center justify-between">
-          <NeumaLogo size="md" />
+          <NeumaLogo size="lg" />
         </header>
         <HomeScanHero onOpenScanner={onOpenScanner} />
 

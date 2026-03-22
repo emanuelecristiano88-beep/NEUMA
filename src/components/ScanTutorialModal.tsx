@@ -5,7 +5,7 @@ import { CheckCircle2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "./ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
-import TutorialA4GuideVisual from "./TutorialA4GuideVisual";
+import FootPlacementGuideVisual from "./FootPlacementGuideVisual";
 
 type ScanTutorialModalProps = {
   open: boolean;
@@ -14,24 +14,24 @@ type ScanTutorialModalProps = {
 
 const STEPS = [
   {
-    title: "📄 Usa un foglio A4 bianco come base",
-    text: "Posiziona il piede nudo al centro di un foglio A4 standard. Il foglio deve essere interamente visibile in ogni foto.",
+    title: "Due persone",
+    text: "Il cliente tiene il piede fermo; un operatore fa le foto con il telefono (non serve che il cliente si muova).",
   },
   {
-    title: "Piede ben illuminato e dettagliato",
-    text: "Scegli un piede ben illuminato, con rughe e texture della pelle visibili per il tracking.",
+    title: "Foglio A4 NEUMA stampato",
+    text: "Usa il foglio con griglia in cm e marker agli angoli (Guida stampa). Stampa al 100%, senza ridimensionare.",
   },
   {
-    title: "Movimento a orbita",
-    text: "Muoviti lentamente in un cerchio completo attorno al tuo piede, mantenendo il telefono stabile.",
+    title: "Piede al centro del foglio",
+    text: "Allinea il tallone all’area centro foglio (croce sul foglio stampato). Piede nudo, pavimento piatto, buona luce.",
   },
   {
-    title: "Copri angoli e altezze",
-    text: "Inclina il telefono verso l’alto e verso il basso durante il movimento per coprire tutte le viste.",
+    title: "Operatore: orbita lenta",
+    text: "Inquadra sempre foglio e piede per intero. Muoviti lentamente attorno al piede; il cliente non sposta il piede.",
   },
   {
-    title: "Piede fermo",
-    text: "Tieni il piede perfettamente fermo durante l’intera scansione: non spostarlo o ruotarlo.",
+    title: "Invio",
+    text: "Completa sinistro e destro se richiesto e attendi la fine dell’upload.",
   },
 ];
 
@@ -40,15 +40,15 @@ export default function ScanTutorialModal({ open, onDismiss }: ScanTutorialModal
     <Dialog open={open} onOpenChange={(isOpen) => isOpen === false && onDismiss()}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md" showClose>
         <DialogHeader>
-          <DialogTitle id="scan-tutorial-title">Tutorial fotogrammetria piede</DialogTitle>
+          <DialogTitle id="scan-tutorial-title">Prima di iniziare</DialogTitle>
           <DialogDescription className="sr-only">
-            Leggi i passaggi e avvia la scansione quando sei pronto.
+            Leggi i passaggi: cliente fermo sul foglio, operatore con telefono. Poi avvia la scansione.
           </DialogDescription>
         </DialogHeader>
 
         <Card className="border-0 shadow-none">
-          <CardHeader className="p-0 pb-2">
-            <TutorialA4GuideVisual />
+          <CardHeader className="pb-2">
+            <FootPlacementGuideVisual showRoleCaptions={false} />
           </CardHeader>
           <CardContent className="space-y-3 p-0 pt-2">
             {STEPS.map((step, i) => (

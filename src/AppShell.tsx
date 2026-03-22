@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Book, FileText, Folder, Globe, Layers, Menu as MenuIcon, X } from "lucide-react";
+import { Book, FileText, Folder, Globe, Layers, Menu as MenuIcon, ScanLine, X } from "lucide-react";
 import ScannerCattura from "./ScannerCattura";
 import LibraryScreen from "./screens/LibraryScreen";
 import ScanTutorialModal from "./components/ScanTutorialModal";
@@ -113,6 +113,16 @@ function MenuScreen({ onOpenScanner }: { onOpenScanner: () => void }) {
             <Link to="/prepara-scansione">
               <Book className="h-4 w-4 shrink-0 text-blue-600" />
               Prepara scansione (privacy)
+            </Link>
+          </Button>
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-2 border-neutral-300 bg-white text-zinc-900 hover:bg-neutral-50"
+            asChild
+          >
+            <Link to="/guida-scansione">
+              <ScanLine className="h-4 w-4 shrink-0 text-blue-600" />
+              Guida: come scansionare il piede
             </Link>
           </Button>
         </div>

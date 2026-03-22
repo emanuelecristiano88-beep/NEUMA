@@ -605,9 +605,14 @@ export default function ScannerCattura() {
       form.append("count", String(photosLeft.length + photosRight.length));
       form.append("pair", "true");
 
+      const uploadHeaders = new Headers();
+      const secret = import.meta.env.VITE_UPLOAD_API_SECRET as string | undefined;
+      if (secret) uploadHeaders.set("x-upload-secret", secret);
+
       const res = await fetch("/api/process-scan", {
         method: "POST",
         body: form,
+        headers: uploadHeaders,
       });
 
       if (!res.ok) {

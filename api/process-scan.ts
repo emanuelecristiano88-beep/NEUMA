@@ -1,9 +1,15 @@
 /**
- * Vercel Serverless (Edge) — POST /api/process-scan
- * Su Vercel Edge non c'è filesystem persistente: non salviamo file su disco (solo validazione + risposta).
- * Riferimento implementazione con fs: docs/backend-reference-next-app-router/api/process-scan/route.ts
+ * Vercel Serverless (Node.js) — POST /api/process-scan
+ * Valida le immagini e, se configurato, carica su Google Drive nella cartella condivisa.
  */
-export const config = { runtime: "edge" };
+import {
+  createDriveSubfolder,
+  isDriveConfigured,
+  uploadBufferToDrive,
+  getRootFolderId,
+} from "./lib/googleDrive";
+
+export const config = { runtime: "nodejs", maxDuration: 60 };
 
 function isJpegMagic(bytes: Uint8Array) {
   return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
@@ -33,9 +39,19 @@ function extFromMimeOrMagic(mime: string, bytes: Uint8Array) {
   return null;
 }
 
+function checkUploadSecret(request: Request): boolean {
+  const secret = process.env.UPLOAD_API_SECRET;
+  if (!secret) return true;
+  return request.headers.get("x-upload-secret") === secret;
+}
+
 export default async function handler(request: Request): Promise<Response> {
   if (request.method !== "POST") {
     return Response.json({ status: "error", message: "Method not allowed" }, { status: 405 });
+  }
+
+  if (!checkUploadSecret(request)) {
+    return Response.json({ status: "error", message: "Non autorizzato" }, { status: 401 });
   }
 
   try {
@@ -51,6 +67,8 @@ export default async function handler(request: Request): Promise<Response> {
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const scanId = crypto.randomUUID();
     const folderPath = `/scans/${timestamp}`;
+
+    const validated: { buffer: Buffer; mime: string; ext: string; originalName: string }[] = [];
 
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
@@ -78,6 +96,50 @@ export default async function handler(request: Request): Promise<Response> {
           { status: 400 }
         );
       }
+      validated.push({
+        buffer: Buffer.from(arrayBuffer),
+        mime: mime || (ext === ".jpg" ? "image/jpeg" : ext === ".png" ? "image/png" : "image/webp"),
+        ext,
+        originalName: entry.name || `photo_${i}${ext}`,
+      });
+    }
+
+    let driveUploaded = false;
+    let driveFolderId: string | undefined;
+    let driveFolderLink: string | undefined;
+    const driveFileIds: string[] = [];
+
+    if (isDriveConfigured()) {
+      try {
+        const rootId = getRootFolderId();
+        const sub = await createDriveSubfolder(rootId, `scan_${timestamp}_${scanId.slice(0, 8)}`);
+        driveFolderId = sub.id;
+        driveFolderLink = `https://drive.google.com/drive/folders/${sub.id}`;
+
+        for (const v of validated) {
+          const up = await uploadBufferToDrive({
+            fileName: v.originalName.replace(/[^\w.\-]+/g, "_"),
+            buffer: v.buffer,
+            mimeType: v.mime,
+            parentFolderId: sub.id,
+          });
+          driveFileIds.push(up.id);
+        }
+        driveUploaded = true;
+      } catch (e) {
+        console.error("[process-scan] Google Drive:", e);
+        return Response.json(
+          {
+            status: "error",
+            scanId,
+            message:
+              e instanceof Error
+                ? `Upload Drive fallito: ${e.message}`
+                : "Upload Drive fallito.",
+          },
+          { status: 502 }
+        );
+      }
     }
 
     const scaleReference = {
@@ -87,7 +149,6 @@ export default async function handler(request: Request): Promise<Response> {
       detectionMode: "aruco_a4" as const,
     };
 
-    /** Placeholder: sostituire con metriche da mesh 3D (script Mac / ricostruzione). */
     const metrics = {
       lunghezzaMm: 265,
       larghezzaMm: 95,
@@ -117,8 +178,14 @@ export default async function handler(request: Request): Promise<Response> {
       path: folderPath,
       receivedCount: entries.length,
       savedCount: entries.length,
+      driveUploaded,
+      driveFolderId: driveFolderId ?? null,
+      driveFolderLink: driveFolderLink ?? null,
+      driveFileIds: driveUploaded ? driveFileIds : [],
       scaleFactorApplied: 1.0,
-      scaleReferenceNote: "A4 detected (placeholder) — Vercel Edge: nessun salvataggio file su disco",
+      scaleReferenceNote: driveUploaded
+        ? "Foto salvate su Google Drive"
+        : "Drive non configurato: solo validazione (nessun salvataggio cloud)",
       scaleReference,
       message: "Pronto per la ricostruzione 3D (NEUMA)",
       metrics,

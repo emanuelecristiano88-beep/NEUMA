@@ -36,7 +36,12 @@ export default function GuidaStampaPage() {
             <CardTitle>Guida stampa A4</CardTitle>
             <CardDescription>
               Foglio di calibrazione con griglia millimetrica, 4 target agli angoli (interasse 210×297 mm) e area
-              piede. Usa per la scansione fotogrammetrica.
+              piede. Usa per la scansione fotogrammetrica. Per il flusso consigliato (cliente fermo + operatore che
+              fotografa) vedi anche{" "}
+              <Link to="/guida-scansione" className="font-medium text-primary underline-offset-4 hover:underline">
+                Guida alla scansione del piede
+              </Link>
+              .
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
