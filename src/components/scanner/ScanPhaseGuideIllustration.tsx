@@ -2,7 +2,11 @@
 
 import React from "react";
 import { cn } from "../../lib/utils";
-import { SCAN_PHASE_REFERENCE_PHOTO, type ScanPhaseId } from "../../constants/scanCapturePhases";
+import {
+  SCAN_PHASE_REFERENCE_PHOTO,
+  SCAN_PHASE_RASTER,
+  type ScanPhaseId,
+} from "../../constants/scanCapturePhases";
 
 const BLUE = "#2563eb";
 const SCREEN_BG = "#0f172a";
@@ -256,9 +260,9 @@ export type ScanPhaseGuideIllustrationProps = {
 };
 
 /**
- * Illustrazioni vettoriali stile NEUMA: cornice telefono, overlay blu, mirino, foglio + marker, piede per fase.
+ * Solo SVG (fallback se la foto in public non è disponibile).
  */
-export default function ScanPhaseGuideIllustration({
+export function ScanPhaseGuideIllustrationSvg({
   phaseId,
   className,
   variant = "panel",
@@ -291,7 +295,6 @@ export default function ScanPhaseGuideIllustration({
     >
       <title id={titleId}>{ref.alt}</title>
       <PhoneShell pid={pid}>{body}</PhoneShell>
-      {/* Etichetta stile app */}
       <text
         x="180"
         y="392"
@@ -305,4 +308,49 @@ export default function ScanPhaseGuideIllustration({
       </text>
     </svg>
   );
+}
+
+/**
+ * Fasi 1 e 4 (id 0 e 3): foto di riferimento da `public/scan-guides/` se presenti; altrimenti SVG come le altre fasi.
+ */
+export default function ScanPhaseGuideIllustration({
+  phaseId,
+  className,
+  variant = "panel",
+}: ScanPhaseGuideIllustrationProps) {
+  const rasterSrc = SCAN_PHASE_RASTER[phaseId];
+  const [useSvg, setUseSvg] = React.useState(!rasterSrc);
+  const ref = SCAN_PHASE_REFERENCE_PHOTO[phaseId];
+
+  if (rasterSrc && !useSvg) {
+    const isCompact = variant === "compact";
+    return (
+      <div
+        className={cn(
+          "relative mx-auto w-full overflow-hidden rounded-[2rem] border border-zinc-600/80 bg-zinc-950 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]",
+          isCompact ? "max-h-[210px]" : "max-h-[min(52vh,440px)]",
+          className
+        )}
+      >
+        <div
+          className="pointer-events-none absolute inset-x-8 top-3 z-[1] h-1.5 rounded-full bg-zinc-800/90"
+          aria-hidden
+        />
+        <img
+          src={rasterSrc}
+          alt={ref.alt}
+          className={cn(
+            "mx-auto block w-full object-contain object-top px-1 pb-8 pt-6 sm:px-2",
+            isCompact ? "max-h-[176px]" : "max-h-[min(48vh,400px)]"
+          )}
+          onError={() => setUseSvg(true)}
+        />
+        <div className="absolute bottom-0 left-0 right-0 border-t border-zinc-700/60 bg-zinc-950/95 py-1.5 text-center font-mono text-[9px] tracking-wide text-zinc-500">
+          NEUMA · foto di riferimento
+        </div>
+      </div>
+    );
+  }
+
+  return <ScanPhaseGuideIllustrationSvg phaseId={phaseId} className={className} variant={variant} />;
 }

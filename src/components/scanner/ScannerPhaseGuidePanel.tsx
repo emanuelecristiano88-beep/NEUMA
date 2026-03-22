@@ -3,7 +3,12 @@
 import React from "react";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
-import { SCAN_PHASE_GUIDE_COPY, SCAN_PHASE_REFERENCE_PHOTO, type ScanPhaseId } from "../../constants/scanCapturePhases";
+import {
+  SCAN_PHASE_GUIDE_COPY,
+  SCAN_PHASE_REFERENCE_PHOTO,
+  SCAN_PHASE_RASTER,
+  type ScanPhaseId,
+} from "../../constants/scanCapturePhases";
 import ScanPhaseGuideIllustration from "./ScanPhaseGuideIllustration";
 
 export type PhaseId = ScanPhaseId;
@@ -21,6 +26,7 @@ export type ScannerPhaseGuidePanelProps = {
 export default function ScannerPhaseGuidePanel({ phaseId, foot, onContinue }: ScannerPhaseGuidePanelProps) {
   const copy = SCAN_PHASE_GUIDE_COPY[phaseId];
   const ref = SCAN_PHASE_REFERENCE_PHOTO[phaseId];
+  const hasRaster = SCAN_PHASE_RASTER[phaseId] != null;
 
   return (
     <div className="fixed inset-0 z-[96] flex flex-col bg-zinc-950/97">
@@ -35,7 +41,7 @@ export default function ScannerPhaseGuidePanel({ phaseId, foot, onContinue }: Sc
         <figure className="mx-auto max-w-md overflow-hidden rounded-xl border border-white/10 bg-zinc-900/80 shadow-lg shadow-black/40">
           <div className="relative bg-[#0a0a0f]">
             <span className="absolute left-2 top-2 z-[1] rounded-md bg-black/65 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white backdrop-blur-sm">
-              Schema inquadratura
+              {hasRaster ? "Foto di riferimento" : "Schema inquadratura"}
             </span>
             <p className="sr-only">{ref.alt}</p>
             <ScanPhaseGuideIllustration phaseId={phaseId} variant="panel" className="block" />

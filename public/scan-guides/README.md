@@ -1,5 +1,8 @@
-# Guide fasi scanner
+# Guide fasi scanner — asset opzionali
 
-Le **4 illustrazioni** delle fasi sono generate in codice (`ScanPhaseGuideIllustration.tsx`): stile NEUMA con cornice telefono, overlay blu, mirino e foglio con marker.
+- **`phase-0.png`** — Fase **1/4** (vista dall’alto): screenshot di riferimento reale.  
+- **`phase-3.png`** — Fase **4/4** (posteriore / tallone): screenshot di riferimento reale.  
 
-Non sono più usate immagini PNG opzionali in questa cartella; puoi comunque aggiungere asset qui per usi futuri (documentazione, marketing).
+Le fasi **2** e **3** usano solo illustrazioni SVG generate in `ScanPhaseGuideIllustration.tsx`.
+
+Se `phase-0.png` o `phase-3.png` mancano o non si caricano, l’app torna allo **schema vettoriale** per quella fase.

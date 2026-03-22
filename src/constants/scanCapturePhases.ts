@@ -73,15 +73,21 @@ export const SCAN_PHASE_GUIDE_COPY: Record<ScanPhaseId, ScanPhaseGuideCopy> = {
   },
 };
 
+/** Fasi con screenshot reale in `public/scan-guides/phase-{id}.png` (le altre restano SVG). */
+export const SCAN_PHASE_RASTER: Partial<Record<ScanPhaseId, string>> = {
+  0: "/scan-guides/phase-0.png",
+  3: "/scan-guides/phase-3.png",
+};
+
 /**
- * Testi per illustrazioni SVG (stile NEUMA) nel pannello fase e in guida.
+ * Testi per illustrazioni / foto di riferimento nel pannello fase e in guida.
  */
 export const SCAN_PHASE_REFERENCE_PHOTO: Record<
   ScanPhaseId,
   { alt: string; /** Sotto l’illustrazione nel pannello fase / guida */ caption: string }
 > = {
   0: {
-    alt: "Illustrazione vista dall’alto: piede sul foglio con griglia e quattro marker agli angoli",
+    alt: "Schermata di esempio vista dall’alto: piede sul foglio, cornice blu e marker agli angoli",
     caption:
       "Piede fermo sul foglio · telefono sopra la pianta: punta, avampiede e contorni ben visibili; griglia e 4 marker nel frame.",
   },
@@ -96,7 +102,7 @@ export const SCAN_PHASE_REFERENCE_PHOTO: Record<
       "Dal lato interno del piede · segui l’arco dell’arco plantare; mantieni griglia e marker allineati come in figura.",
   },
   3: {
-    alt: "Illustrazione vista posteriore: tallone e retro piede sul foglio",
+    alt: "Schermata di esempio vista posteriore: tallone e retro piede sul foglio con marker",
     caption:
       "Dietro al tallone · caviglia e calcagno a fuoco, telefono all’altezza della caviglia; poi leggera inclinazione verso la pianta.",
   },
