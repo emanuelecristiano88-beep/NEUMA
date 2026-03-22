@@ -10,6 +10,7 @@ import { Button } from "./components/ui/button";
 import { Dialog, DialogContent } from "./components/ui/dialog";
 import { cn } from "./lib/utils";
 import { NEUMA_UI_BUILD_ID } from "./config/build";
+import NeumaLogo from "./components/NeumaLogo";
 
 type TabId = "library" | "albums" | "explore" | "menu";
 
@@ -63,6 +64,7 @@ function MenuScreen({ onOpenScanner }: { onOpenScanner: () => void }) {
   return (
     <div className="min-h-[100dvh] bg-neutral-200 pb-24 text-zinc-900">
       <div className="px-5 pt-6">
+        <NeumaLogo size="md" className="mb-6" />
         <div className="text-2xl font-semibold tracking-tight text-zinc-900">Menu</div>
         <p className="mt-2 text-sm text-zinc-600">
           Scanner fotogrammetrico piede.{" "}
@@ -123,6 +125,7 @@ function PlaceholderScreen({ title }: { title: string }) {
   return (
     <div className="min-h-[100dvh] bg-neutral-200 pb-24 text-zinc-900">
       <div className="px-5 pt-6">
+        <NeumaLogo size="sm" className="mb-5 opacity-90" />
         <div className="text-2xl font-semibold tracking-tight text-zinc-900">{title}</div>
         <p className="mt-2 text-sm text-zinc-600">Schermata in arrivo.</p>
       </div>

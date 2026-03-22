@@ -7,6 +7,7 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Checkbox } from "../components/ui/checkbox";
 import { Label } from "../components/ui/label";
+import NeumaLogo from "../components/NeumaLogo";
 
 export default function PreparaScansionePage() {
   const navigate = useNavigate();
@@ -28,6 +29,7 @@ export default function PreparaScansionePage() {
         </Button>
 
         <header className="mb-6">
+          <NeumaLogo variant="dark" size="md" className="mb-6" />
           <h1 className="text-2xl font-bold tracking-tight text-zinc-100">Prepara scansione</h1>
           <p className="mt-2 text-sm text-zinc-400">
             Prima di iniziare, leggi la sezione su privacy e accetta i termini.

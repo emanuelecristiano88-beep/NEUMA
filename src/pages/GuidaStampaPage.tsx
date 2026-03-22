@@ -5,6 +5,7 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { downloadGuidaStampaPdf } from "../lib/guidaStampaPdf";
 import { ScannerTarget } from "../components/ScannerTarget";
+import NeumaLogo from "../components/NeumaLogo";
 
 export default function GuidaStampaPage() {
   const [busy, setBusy] = useState(false);
@@ -27,6 +28,8 @@ export default function GuidaStampaPage() {
             Torna all&apos;app
           </Link>
         </Button>
+
+        <NeumaLogo size="sm" className="mb-2" />
 
         <Card>
           <CardHeader>

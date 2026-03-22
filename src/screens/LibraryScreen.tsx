@@ -4,6 +4,7 @@ import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, ChevronDown, Plus, MoreHorizontal, X, CheckCircle2 } from "lucide-react";
 import HomeScanHero from "../components/HomeScanHero";
+import NeumaLogo from "../components/NeumaLogo";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardFooter } from "../components/ui/card";
@@ -166,6 +167,9 @@ export default function LibraryScreen({ onOpenScanner }: LibraryScreenProps) {
   return (
     <div className="min-h-[100dvh] bg-neutral-200 pb-28 text-zinc-900">
       <div className="px-5 pt-5">
+        <header className="mb-2 flex items-center justify-between">
+          <NeumaLogo size="md" />
+        </header>
         <HomeScanHero onOpenScanner={onOpenScanner} />
 
         <section className="mt-8" aria-labelledby="catalogo-scarpe-heading">

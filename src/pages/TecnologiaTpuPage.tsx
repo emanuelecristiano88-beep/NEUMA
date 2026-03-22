@@ -4,6 +4,7 @@ import { ArrowLeft, Droplets, Footprints, Leaf, Recycle, Shield, Sparkles } from
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { HoneycombLatticeVisual } from "../components/HoneycombLatticeVisual";
+import NeumaLogo from "../components/NeumaLogo";
 
 export default function TecnologiaTpuPage() {
   return (
@@ -17,7 +18,7 @@ export default function TecnologiaTpuPage() {
         </Button>
 
         <header className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wider text-primary">NEUMA</p>
+          <NeumaLogo size="sm" className="mb-1" />
           <h1 className="text-3xl font-bold tracking-tight md:text-4xl">Tecnologia TPU &amp; stampanti 3D</h1>
           <p className="text-base text-muted-foreground leading-relaxed">
             Le tue scarpe nascono dalla nostra <strong className="text-foreground">produzione NEUMA</strong>: precisione
