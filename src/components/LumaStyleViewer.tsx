@@ -9,8 +9,9 @@
  * finché gli splat non sono in catalogo.
  */
 import React, { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useLoader, useThree } from "@react-three/fiber";
 import { Environment, Html, OrbitControls, useGLTF } from "@react-three/drei";
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import * as THREE from "three";
 import { X } from "lucide-react";
 import { Button } from "./ui/button";
@@ -117,7 +118,7 @@ function applyLumaPreset(root: THREE.Object3D, preset: LumaMaterialPreset) {
   });
 }
 
-function LumaShoe({
+function LumaShoeGlb({
   glbSrc,
   materialPreset,
 }: {
@@ -140,6 +141,57 @@ function LumaShoe({
       <primitive object={clone} />
     </group>
   );
+}
+
+function LumaShoeStl({
+  stlSrc,
+  materialPreset,
+}: {
+  stlSrc: string;
+  materialPreset: LumaMaterialPreset;
+}) {
+  const geometry = useLoader(STLLoader, stlSrc) as THREE.BufferGeometry;
+
+  const clone = useMemo(() => {
+    const g = geometry.clone();
+    g.computeVertexNormals();
+    const mesh = new THREE.Mesh(
+      g,
+      new THREE.MeshPhysicalMaterial({
+        color: 0xffffff,
+        metalness: 0.1,
+        roughness: 0.4,
+      })
+    );
+    const root = new THREE.Group();
+    root.add(mesh);
+    return root;
+  }, [geometry, stlSrc]);
+
+  const offset = useMemo(() => computeOffsetToFloor(clone), [clone]);
+
+  useLayoutEffect(() => {
+    applyLumaPreset(clone, materialPreset);
+  }, [clone, materialPreset]);
+
+  return (
+    <group scale={0.85} position={[offset.x, offset.y, offset.z]}>
+      <primitive object={clone} />
+    </group>
+  );
+}
+
+function LumaShoe({
+  glbSrc,
+  materialPreset,
+}: {
+  glbSrc: string;
+  materialPreset: LumaMaterialPreset;
+}) {
+  if (glbSrc.toLowerCase().endsWith(".stl")) {
+    return <LumaShoeStl stlSrc={glbSrc} materialPreset={materialPreset} />;
+  }
+  return <LumaShoeGlb glbSrc={glbSrc} materialPreset={materialPreset} />;
 }
 
 function LumaScene({

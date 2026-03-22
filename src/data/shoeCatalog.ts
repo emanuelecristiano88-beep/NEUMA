@@ -2,7 +2,7 @@ export type ShoeCatalogItem = {
   id: string;
   name: string;
   subtitle: string;
-  /** URL assoluto o path sotto `/public` (es. `/models/scarpa.glb`) */
+  /** URL assoluto o path sotto `/public` — `.glb` oppure `.stl` (es. `/models/yeezy_foamrunner.stl`) */
   glbSrc: string;
 };
 
@@ -15,7 +15,7 @@ export const SHOE_CATALOG: ShoeCatalogItem[] = [
     id: "alpino-trail",
     name: "Alpino Trail",
     subtitle: "Trail · TPU ammortizzato",
-    glbSrc: "https://modelviewer.dev/shared-assets/models/Astronaut.glb",
+    glbSrc: "/models/yeezy_foamrunner.stl",
   },
   {
     id: "alpino-urban",

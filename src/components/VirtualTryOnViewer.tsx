@@ -1,8 +1,9 @@
 "use client";
 
 import React, { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useLoader } from "@react-three/fiber";
 import { Bounds, Center, Environment, Html, OrbitControls, useGLTF } from "@react-three/drei";
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import * as THREE from "three";
 import { X } from "lucide-react";
 import { Button } from "./ui/button";
@@ -45,7 +46,7 @@ function applyTpuColor(root: THREE.Object3D, rgb: readonly [number, number, numb
   });
 }
 
-function TryOnShoe({
+function TryOnShoeGlb({
   glbSrc,
   tpuRgb,
 }: {
@@ -62,11 +63,53 @@ function TryOnShoe({
   return <primitive object={clone} />;
 }
 
-function TryOnScene({
-  glbSrc,
+function TryOnShoeStl({
+  src,
   tpuRgb,
 }: {
-  glbSrc: string;
+  src: string;
+  tpuRgb: readonly [number, number, number];
+}) {
+  const geometry = useLoader(STLLoader, src) as THREE.BufferGeometry;
+  const root = useMemo(() => {
+    const g = geometry.clone();
+    g.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      metalness: 0.12,
+      roughness: 0.42,
+    });
+    const mesh = new THREE.Mesh(g, mat);
+    const grp = new THREE.Group();
+    grp.add(mesh);
+    return grp;
+  }, [geometry, src]);
+
+  useLayoutEffect(() => {
+    applyTpuColor(root, tpuRgb);
+  }, [root, tpuRgb]);
+
+  return <primitive object={root} />;
+}
+
+function TryOnShoe({
+  modelSrc,
+  tpuRgb,
+}: {
+  modelSrc: string;
+  tpuRgb: readonly [number, number, number];
+}) {
+  if (modelSrc.toLowerCase().endsWith(".stl")) {
+    return <TryOnShoeStl src={modelSrc} tpuRgb={tpuRgb} />;
+  }
+  return <TryOnShoeGlb glbSrc={modelSrc} tpuRgb={tpuRgb} />;
+}
+
+function TryOnScene({
+  modelSrc,
+  tpuRgb,
+}: {
+  modelSrc: string;
   tpuRgb: readonly [number, number, number];
 }) {
   return (
@@ -87,7 +130,7 @@ function TryOnScene({
         <Environment preset="studio" environmentIntensity={1} />
         <Bounds fit clip observe margin={1.15}>
           <Center>
-            <TryOnShoe glbSrc={glbSrc} tpuRgb={tpuRgb} />
+            <TryOnShoe modelSrc={modelSrc} tpuRgb={tpuRgb} />
           </Center>
         </Bounds>
       </Suspense>
@@ -219,7 +262,7 @@ export default function VirtualTryOnViewer({
         scene.background = null;
       }}
     >
-      <TryOnScene glbSrc={shoe.glbSrc} tpuRgb={activeRgb} />
+      <TryOnScene modelSrc={shoe.glbSrc} tpuRgb={activeRgb} />
     </Canvas>
   ) : (
     <div className="flex h-full w-full items-center justify-center rounded-2xl border border-sky-500/30 bg-zinc-950/60">
