@@ -4,40 +4,100 @@
  * - GOOGLE_SERVICE_ACCOUNT_JSON: JSON completo del service account (stringa, una riga su Vercel)
  * - GOOGLE_DRIVE_FOLDER_ID: ID cartella Drive dove salvare (condividi la cartella con l'email del service account)
  */
-import { google } from "googleapis";
+import { createSign } from "node:crypto";
 
 const SCOPES = ["https://www.googleapis.com/auth/drive"];
 const DRIVE_REQUEST_TIMEOUT_MS = 8_000;
 
-let cachedAuth: google.auth.GoogleAuth | null = null;
+type ServiceAccountCredentials = {
+  client_email: string;
+  private_key: string;
+  token_uri?: string;
+};
 
-function getCredentials(): Record<string, unknown> {
+let cachedCreds: ServiceAccountCredentials | null = null;
+let cachedToken: { value: string; expiresAtMs: number } | null = null;
+
+function getCredentials(): ServiceAccountCredentials {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!raw) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON non configurato");
   try {
-    return JSON.parse(raw) as Record<string, unknown>;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const clientEmail = typeof parsed.client_email === "string" ? parsed.client_email : "";
+    const privateKey = typeof parsed.private_key === "string" ? parsed.private_key : "";
+    if (!clientEmail || !privateKey) {
+      throw new Error("client_email/private_key mancanti");
+    }
+    return {
+      client_email: clientEmail,
+      private_key: privateKey,
+      token_uri: typeof parsed.token_uri === "string" ? parsed.token_uri : undefined,
+    };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(`GOOGLE_SERVICE_ACCOUNT_JSON non valido (JSON.parse): ${msg}`);
   }
 }
 
-function getGoogleAuth() {
-  if (cachedAuth) return cachedAuth;
-  cachedAuth = new google.auth.GoogleAuth({
-    credentials: getCredentials(),
-    scopes: SCOPES,
-  });
-  return cachedAuth;
+function getServiceAccountCredentials() {
+  if (cachedCreds) return cachedCreds;
+  cachedCreds = getCredentials();
+  return cachedCreds;
+}
+
+function base64Url(input: Buffer | string): string {
+  const b = typeof input === "string" ? Buffer.from(input, "utf8") : input;
+  return b
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
 }
 
 async function getAccessToken(): Promise<string> {
-  const auth = getGoogleAuth();
-  const client = await auth.getClient();
-  const token = await client.getAccessToken();
-  const value = typeof token === "string" ? token : token?.token;
-  if (!value) throw new Error("Google auth: access token mancante");
-  return value;
+  const now = Date.now();
+  if (cachedToken && cachedToken.expiresAtMs - now > 20_000) {
+    return cachedToken.value;
+  }
+
+  const creds = getServiceAccountCredentials();
+  const tokenUri = creds.token_uri || "https://oauth2.googleapis.com/token";
+  const nowSec = Math.floor(now / 1000);
+  const payload = {
+    iss: creds.client_email,
+    scope: SCOPES.join(" "),
+    aud: tokenUri,
+    iat: nowSec,
+    exp: nowSec + 3600,
+  };
+  const header = { alg: "RS256", typ: "JWT" };
+  const unsigned = `${base64Url(JSON.stringify(header))}.${base64Url(JSON.stringify(payload))}`;
+  const signer = createSign("RSA-SHA256");
+  signer.update(unsigned);
+  signer.end();
+  const sig = signer.sign(creds.private_key);
+  const assertion = `${unsigned}.${base64Url(sig)}`;
+
+  const data = await fetchJsonWithTimeout<{ access_token?: string; expires_in?: number }>(
+    tokenUri,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion,
+      }),
+    },
+    "google.oauth.token"
+  );
+  const token = typeof data.access_token === "string" ? data.access_token : "";
+  const expiresIn = typeof data.expires_in === "number" ? data.expires_in : 3600;
+  if (!token) throw new Error("Google auth: access token mancante");
+  cachedToken = {
+    value: token,
+    expiresAtMs: now + Math.max(60, expiresIn - 30) * 1000,
+  };
+  return token;
 }
 
 async function fetchJsonWithTimeout<T>(url: string, init: RequestInit, label: string): Promise<T> {

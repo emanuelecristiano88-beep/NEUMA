@@ -101,6 +101,18 @@ async function blobToImageData(blob: Blob): Promise<ImageData> {
   return ctx.getImageData(0, 0, canvas.width, canvas.height);
 }
 
+async function blobToBase64(blob: Blob): Promise<string> {
+  const buffer = await blob.arrayBuffer();
+  let bin = "";
+  const bytes = new Uint8Array(buffer);
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    const part = bytes.subarray(i, i + chunk);
+    bin += String.fromCharCode(...part);
+  }
+  return btoa(bin);
+}
+
 async function captureFrameAsJpeg(video: HTMLVideoElement) {
   const vW = video.videoWidth || 1280;
   const vH = video.videoHeight || 720;
@@ -162,12 +174,14 @@ function ProcessingView({
   progress,
   isReady,
   scanId,
+  statusText,
   onVisualize,
   onBackToGallery,
 }: {
   progress: number;
   isReady: boolean;
   scanId: string | null;
+  statusText?: string;
   onVisualize: () => void;
   onBackToGallery: () => void;
 }) {
@@ -213,7 +227,7 @@ function ProcessingView({
             </Button>
           </div>
         ) : (
-          <div className="mt-5 text-sm text-zinc-400">Questo può richiedere alcuni secondi.</div>
+          <div className="mt-5 text-sm text-zinc-400">{statusText || "Questo può richiedere alcuni secondi."}</div>
         )}
       </div>
     </div>
@@ -269,6 +283,7 @@ export default function ScannerCattura() {
   const [processingProgress, setProcessingProgress] = useState(0);
   const [processingScanId, setProcessingScanId] = useState<string | null>(null);
   const [processingReady, setProcessingReady] = useState(false);
+  const [processingStatusText, setProcessingStatusText] = useState<string>("");
   const processingIntervalRef = useRef<number | null>(null);
   const processingCompletionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Simulazione generazione mesh dopo "VISUALIZZA 3D" (futuro polling API) */
@@ -592,6 +607,7 @@ export default function ScannerCattura() {
     setProcessingProgress(0);
     setProcessingScanId(null);
     setProcessingReady(false);
+    setProcessingStatusText("");
     setScanPath("");
 
     setScanId(
@@ -779,6 +795,7 @@ export default function ScannerCattura() {
     setProcessingProgress(0);
     setProcessingScanId(null);
     setProcessingReady(false);
+    setProcessingStatusText("");
     setScanPath("");
     setTimerSeconds(0);
     setFps(0);
@@ -808,9 +825,7 @@ export default function ScannerCattura() {
     stopProcessing();
 
     try {
-      const uploadHeaders = new Headers();
       const secret = import.meta.env.VITE_UPLOAD_API_SECRET as string | undefined;
-      if (secret) uploadHeaders.set("x-upload-secret", secret);
 
       const uploadLeft = selectRepresentativePhaseFrames(photosLeft, UPLOAD_PHOTOS_PER_PHASE);
       const uploadRight = selectRepresentativePhaseFrames(photosRight, UPLOAD_PHOTOS_PER_PHASE);
@@ -836,37 +851,37 @@ export default function ScannerCattura() {
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
-        const form = new FormData();
-        form.append("photos", item.blob, item.name);
-        form.append("count", String(items.length));
-        form.append("pair", "true");
-        form.append("scanId", sessionScanId);
-        form.append("batchIndex", String(i));
-        form.append("batchTotal", String(items.length));
-        if (driveFolderId) form.append("driveFolderId", driveFolderId);
-
-        const res = await fetch("/api/process-scan", {
+        setProcessingStatusText(`Caricamento foto ${i + 1} di ${items.length}...`);
+        const imageBase64 = await blobToBase64(item.blob);
+        const res = await fetch("/api/upload-single", {
           method: "POST",
-          body: form,
-          headers: uploadHeaders,
+          body: JSON.stringify({
+            imageBase64,
+            fileName: item.name,
+            folderId: driveFolderId || "",
+            scanId: sessionScanId,
+            mimeType: item.blob.type || "image/webp",
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            ...(secret ? { "x-upload-secret": secret } : {}),
+          },
         });
         const text = await res.text().catch(() => "");
         if (!res.ok) {
-          throw new Error(`process-scan fallito (${res.status}) foto ${i + 1}/${items.length}. ${text}`);
+          throw new Error(`upload-single fallito (${res.status}) foto ${i + 1}/${items.length}. ${text}`);
         }
         let data: Record<string, unknown>;
         try {
           data = JSON.parse(text) as Record<string, unknown>;
         } catch {
-          throw new Error(`Risposta process-scan non valida (foto ${i + 1}/${items.length})`);
+          throw new Error(`Risposta upload-single non valida (foto ${i + 1}/${items.length})`);
         }
-        const st = data.status;
-        const driveOk = data.driveUploaded === true;
-        if ((st !== "partial" && st !== "success") || !driveOk) {
+        if (data.ok !== true || data.driveUploaded !== true) {
           throw new Error(
-            typeof data.message === "string"
-              ? `process-scan errore foto ${i + 1}/${items.length}: ${data.message}`
-              : `process-scan non ha caricato la foto ${i + 1}/${items.length}`
+            typeof data.error === "string"
+              ? `upload-single errore foto ${i + 1}/${items.length}: ${data.error}`
+              : `upload-single non ha caricato la foto ${i + 1}/${items.length}`
           );
         }
         if (typeof data.driveFolderId === "string" && data.driveFolderId) {
@@ -885,6 +900,7 @@ export default function ScannerCattura() {
       setProcessingScanId(sessionScanId);
       setScanPath(driveFolderLink || "/scans/drive");
       setError("");
+      setProcessingStatusText("Upload completato. Avvio elaborazione modello...");
 
       if (typeof sessionStorage !== "undefined") {
         sessionStorage.setItem(PAIR_STORAGE_KEY, "true");
@@ -903,6 +919,7 @@ export default function ScannerCattura() {
     } catch (e: any) {
       const msg = e?.message || String(e);
       stopProcessing();
+      setProcessingStatusText("");
       setCameraState("review");
       setError(`ERRORE_UPLOAD // ${msg}`);
     }
@@ -1391,6 +1408,7 @@ export default function ScannerCattura() {
             progress={processingProgress}
             isReady={processingReady}
             scanId={processingScanId}
+            statusText={processingStatusText}
             onVisualize={beginMeshVisualization}
             onBackToGallery={() => setCameraState("review")}
           />
