@@ -277,6 +277,7 @@ export default function ScannerCattura() {
   const [processingScanId, setProcessingScanId] = useState<string | null>(null);
   const [processingReady, setProcessingReady] = useState(false);
   const processingIntervalRef = useRef<number | null>(null);
+  const processingCompletionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Simulazione generazione mesh dopo "VISUALIZZA 3D" (futuro polling API) */
   const meshGenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [scanMeshViewerStatus, setScanMeshViewerStatus] = useState<ScanMeshViewerStatus>("idle");
@@ -443,6 +444,10 @@ export default function ScannerCattura() {
       window.clearInterval(processingIntervalRef.current);
       processingIntervalRef.current = null;
     }
+    if (processingCompletionTimeoutRef.current) {
+      clearTimeout(processingCompletionTimeoutRef.current);
+      processingCompletionTimeoutRef.current = null;
+    }
   };
 
   const startProcessingSimulation = () => {
@@ -466,6 +471,13 @@ export default function ScannerCattura() {
         setProcessingReady(true);
       }
     }, 50);
+
+    // Failsafe: alcuni device possono clamping/tick rate; garantiamo comunque lo stato finale.
+    processingCompletionTimeoutRef.current = window.setTimeout(() => {
+      stopProcessing();
+      setProcessingProgress(100);
+      setProcessingReady(true);
+    }, durationMs + 120);
   };
 
   useEffect(() => {
@@ -925,9 +937,10 @@ export default function ScannerCattura() {
       const isServerInvocationFailure =
         /FUNCTION_INVOCATION_FAILED/i.test(msg) || /POST fallito \(5\d\d\)/i.test(msg);
 
-      // Fallback UX: se il cloud upload è giù, non bloccare il flusso utente.
-      // Continuiamo con simulazione processing locale e preview 3D.
-      if (isServerInvocationFailure) {
+      // Modalità strict cloud: se il cloud upload è giù, fermiamo il flusso.
+      // (Le foto su Drive sono requisito operativo.)
+      const allowLocalFallback = false;
+      if (isServerInvocationFailure && allowLocalFallback) {
         const fallbackScanId =
           scanId ||
           (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `scan_local_${Date.now()}`);

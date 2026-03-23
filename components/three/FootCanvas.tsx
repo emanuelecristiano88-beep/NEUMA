@@ -80,7 +80,7 @@ type Metrics = { footLengthMm: number; forefootWidthMm: number };
 
 type FootCanvasProps = {
   metrics: Metrics | null;
-  shoeUrl?: string; // deve puntare a /public/models/*.glb
+  shoeUrl?: string; // opzionale: deve puntare a /public/models/*.glb
   /** URL mesh piede (STL/GLB) dall’API — preparazione futura; oggi solo metadata sulla shell */
   meshUrl?: string;
 };
@@ -170,9 +170,25 @@ function ShoeModel({ shoeUrl, metrics }: { shoeUrl: string; metrics: Metrics | n
   );
 }
 
+function NeutralFootFallback({ metrics }: { metrics: Metrics | null }) {
+  const scaleFactor = metrics ? metrics.footLengthMm / 280 : 1;
+  return (
+    <group scale={[scaleFactor, scaleFactor, scaleFactor]}>
+      <mesh position={[0, 0.035, 0]} castShadow receiveShadow>
+        <capsuleGeometry args={[0.11, 0.07, 16, 24]} />
+        <meshStandardMaterial color="#d4d4d8" roughness={0.55} metalness={0.08} />
+      </mesh>
+      <mesh position={[0, 0.01, 0]} castShadow receiveShadow>
+        <boxGeometry args={[0.22, 0.028, 0.11]} />
+        <meshStandardMaterial color="#e4e4e7" roughness={0.72} metalness={0.04} />
+      </mesh>
+    </group>
+  );
+}
+
 export default function FootCanvas({
   metrics,
-  shoeUrl = "/models/placeholder_sneaker.glb",
+  shoeUrl,
   meshUrl,
 }: FootCanvasProps) {
   const perf = useThreePerformanceProfile();
@@ -214,15 +230,19 @@ export default function FootCanvas({
           fallback={
             <Html center>
               <div className="rounded border border-blue-500/40 bg-black/60 px-3 py-2 text-xs text-blue-200">
-                Caricamento sneaker... ({shoeScaleHint})
+                Preparazione anteprima 3D... ({shoeScaleHint})
               </div>
             </Html>
           }
         >
-          <GLTFErrorBoundary metrics={metrics} shoeUrl={shoeUrl}>
-            <Environment preset="studio" intensity={0.42} environmentIntensity={0.85} />
-            <ShoeModel shoeUrl={shoeUrl} metrics={metrics} />
-          </GLTFErrorBoundary>
+          <Environment preset="studio" intensity={0.42} environmentIntensity={0.85} />
+          {shoeUrl ? (
+            <GLTFErrorBoundary metrics={metrics} shoeUrl={shoeUrl}>
+              <ShoeModel shoeUrl={shoeUrl} metrics={metrics} />
+            </GLTFErrorBoundary>
+          ) : (
+            <NeutralFootFallback metrics={metrics} />
+          )}
         </Suspense>
 
         <FootOrbitControlsWithInvalidate />

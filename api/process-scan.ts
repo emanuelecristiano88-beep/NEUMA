@@ -15,6 +15,7 @@ import {
 } from "./lib/googleDrive.js";
 
 export const config = { runtime: "nodejs", maxDuration: 120 };
+const DRIVE_UPLOAD_CONCURRENCY = 4;
 
 function isJpegMagic(bytes: Uint8Array) {
   return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
@@ -125,6 +126,31 @@ function metricsPayload() {
   return { scaleReference, metrics };
 }
 
+async function uploadValidatedToDriveInBatches(params: {
+  validated: { buffer: Buffer; mime: string; ext: string; originalName: string }[];
+  parentId: string;
+}): Promise<string[]> {
+  const { validated, parentId } = params;
+  const ids: string[] = [];
+
+  for (let i = 0; i < validated.length; i += DRIVE_UPLOAD_CONCURRENCY) {
+    const chunk = validated.slice(i, i + DRIVE_UPLOAD_CONCURRENCY);
+    const uploaded = await Promise.all(
+      chunk.map((v) =>
+        uploadBufferToDrive({
+          fileName: v.originalName.replace(/[^\w.\-]+/g, "_"),
+          buffer: v.buffer,
+          mimeType: v.mime,
+          parentFolderId: parentId,
+        })
+      )
+    );
+    ids.push(...uploaded.map((u) => u.id));
+  }
+
+  return ids;
+}
+
 export default async function handler(request: Request): Promise<Response> {
   if (request.method !== "POST") {
     return Response.json({ status: "error", message: "Method not allowed" }, { status: 405 });
@@ -215,15 +241,11 @@ export default async function handler(request: Request): Promise<Response> {
         }
 
         const parentId = driveFolderId!;
-        for (const v of validated) {
-          const up = await uploadBufferToDrive({
-            fileName: v.originalName.replace(/[^\w.\-]+/g, "_"),
-            buffer: v.buffer,
-            mimeType: v.mime,
-            parentFolderId: parentId,
-          });
-          driveFileIds.push(up.id);
-        }
+        const uploadedIds = await uploadValidatedToDriveInBatches({
+          validated,
+          parentId,
+        });
+        driveFileIds.push(...uploadedIds);
         driveUploaded = true;
       } catch (e) {
         console.error("[process-scan] Google Drive:", e);
