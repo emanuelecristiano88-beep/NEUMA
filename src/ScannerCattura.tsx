@@ -43,7 +43,8 @@ const TOTAL_PHOTOS = PHOTOS_PER_PHASE * 4;
 /** Upload cloud: sottoinsieme per fase per ridurre timeout serverless (es. 3 x 4 x 2 piedi = 24 foto). */
 const UPLOAD_PHOTOS_PER_PHASE = 3;
 const MAX_OUTPUT_DIM = 1024; // compress before upload, keep aspect ratio
-const JPEG_QUALITY = 0.6; // lighter upload payload
+const JPEG_QUALITY = 0.5; // aggressive JPEG quality for upload
+const MAX_UPLOAD_FILE_BYTES = 200 * 1024; // target < 200KB
 const DEFAULT_METRICS: Metrics = { footLengthMm: 265, forefootWidthMm: 95 };
 
 const PHASES = SCAN_CAPTURE_PHASES;
@@ -129,6 +130,46 @@ async function captureFrameAsJpeg(video: HTMLVideoElement) {
   return new Promise<Blob | null>((resolve) => {
     canvas.toBlob((b) => resolve(b), "image/jpeg", JPEG_QUALITY);
   });
+}
+
+async function compressBlobForUpload(blob: Blob): Promise<Blob> {
+  if (blob.size <= MAX_UPLOAD_FILE_BYTES) return blob;
+
+  const bmp = await createImageBitmap(blob);
+  const baseMax = Math.max(bmp.width, bmp.height);
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  if (!ctx) {
+    bmp.close?.();
+    return blob;
+  }
+
+  let best: Blob = blob;
+  let quality = JPEG_QUALITY;
+  let maxDim = Math.min(MAX_OUTPUT_DIM, baseMax);
+
+  for (let step = 0; step < 4; step++) {
+    const scale = Math.min(1, maxDim / baseMax);
+    const w = Math.max(1, Math.round(bmp.width * scale));
+    const h = Math.max(1, Math.round(bmp.height * scale));
+    canvas.width = w;
+    canvas.height = h;
+    ctx.drawImage(bmp, 0, 0, w, h);
+
+    const out = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), "image/jpeg", quality)
+    );
+    if (out) {
+      best = out;
+      if (out.size <= MAX_UPLOAD_FILE_BYTES) break;
+    }
+
+    quality = Math.max(0.35, quality - 0.07);
+    maxDim = Math.max(640, Math.floor(maxDim * 0.85));
+  }
+
+  bmp.close?.();
+  return best;
 }
 
 function selectRepresentativePhaseFrames<T>(frames: T[], perPhase: number): T[] {
@@ -837,7 +878,8 @@ export default function ScannerCattura() {
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         setProcessingStatusText(`Caricamento foto ${i + 1} di ${items.length}...`);
-        const imageBase64 = await blobToBase64(item.blob);
+        const uploadBlob = await compressBlobForUpload(item.blob);
+        const imageBase64 = await blobToBase64(uploadBlob);
         const res = await fetch("/api/upload-single", {
           method: "POST",
           body: JSON.stringify({
@@ -845,7 +887,7 @@ export default function ScannerCattura() {
             fileName: item.name,
             folderId: driveFolderId || "",
             scanId: sessionScanId,
-            mimeType: item.blob.type || "image/jpeg",
+            mimeType: uploadBlob.type || "image/jpeg",
           }),
           headers: {
             "Content-Type": "application/json",

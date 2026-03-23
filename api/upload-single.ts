@@ -15,10 +15,43 @@ type UploadSingleBody = {
   mimeType?: string;
 };
 
-function checkUploadSecret(request: Request): boolean {
+function readHeader(request: any, key: string): string | null {
+  if (request?.headers?.get) return request.headers.get(key);
+  const v = request?.headers?.[key] ?? request?.headers?.[key.toLowerCase()];
+  return typeof v === "string" ? v : Array.isArray(v) ? v[0] ?? null : null;
+}
+
+function checkUploadSecret(request: any): boolean {
   const secret = process.env.UPLOAD_API_SECRET;
   if (!secret) return true;
-  return request.headers.get("x-upload-secret") === secret;
+  return readHeader(request, "x-upload-secret") === secret;
+}
+
+function sendJson(request: any, res: any, body: Record<string, unknown>, status = 200) {
+  if (res && typeof res.status === "function" && typeof res.json === "function") {
+    res.status(status).json(body);
+    return;
+  }
+  return Response.json(body, { status });
+}
+
+async function readRequestJson(request: any): Promise<UploadSingleBody> {
+  if (request?.json && typeof request.json === "function") {
+    return (await request.json()) as UploadSingleBody;
+  }
+  if (request?.body && typeof request.body === "object" && !request.on) {
+    return request.body as UploadSingleBody;
+  }
+  // Node IncomingMessage fallback
+  const raw = await new Promise<string>((resolve, reject) => {
+    let data = "";
+    request.on("data", (c: Buffer | string) => {
+      data += typeof c === "string" ? c : c.toString("utf8");
+    });
+    request.on("end", () => resolve(data));
+    request.on("error", (e: unknown) => reject(e));
+  });
+  return JSON.parse(raw || "{}") as UploadSingleBody;
 }
 
 function sanitizeName(name: string): string {
@@ -38,22 +71,26 @@ function parseBase64Payload(raw: string): Buffer {
   return Buffer.from(base64, "base64");
 }
 
-export default async function handler(request: Request): Promise<Response> {
+export default async function handler(request: any, res?: any): Promise<Response | void> {
   if (request.method !== "POST") {
-    return Response.json({ ok: false, error: "Method not allowed" }, { status: 405 });
+    return sendJson(request, res, { ok: false, error: "Method not allowed" }, 405);
   }
   if (!checkUploadSecret(request)) {
-    return Response.json({ ok: false, error: "Non autorizzato" }, { status: 401 });
+    return sendJson(request, res, { ok: false, error: "Non autorizzato" }, 401);
   }
   if (!isDriveConfigured()) {
-    return Response.json({ ok: false, error: "Drive non configurato" }, { status: 500 });
+    return sendJson(request, res, { ok: false, error: "Drive non configurato" }, 500);
   }
 
   try {
-    const body = (await request.json()) as UploadSingleBody;
+    const tLabel = `upload-single:${Date.now()}:${Math.random().toString(36).slice(2, 7)}`;
+    console.time(tLabel);
+
+    const body = await readRequestJson(request);
+    console.timeLog(tLabel, "JSON body parsed");
     const imageBase64 = typeof body.imageBase64 === "string" ? body.imageBase64 : "";
     if (!imageBase64) {
-      return Response.json({ ok: false, error: "Campo imageBase64 mancante" }, { status: 400 });
+      return sendJson(request, res, { ok: false, error: "Campo imageBase64 mancante" }, 400);
     }
 
     const scanId = sanitizeScanId(body.scanId);
@@ -63,8 +100,9 @@ export default async function handler(request: Request): Promise<Response> {
         ? body.mimeType
         : "image/webp";
     const buffer = parseBase64Payload(imageBase64);
+    console.timeLog(tLabel, `Payload decoded (${Math.round(buffer.length / 1024)}KB)`);
     if (buffer.length < 64) {
-      return Response.json({ ok: false, error: "Payload immagine troppo piccolo" }, { status: 400 });
+      return sendJson(request, res, { ok: false, error: "Payload immagine troppo piccolo" }, 400);
     }
 
     let folderId = typeof body.folderId === "string" ? body.folderId.trim() : "";
@@ -75,6 +113,7 @@ export default async function handler(request: Request): Promise<Response> {
       const sub = await createDriveSubfolder(root, `scan_${scanId}`);
       folderId = sub.id;
       folderLink = `https://drive.google.com/drive/folders/${folderId}`;
+      console.timeLog(tLabel, "Drive subfolder created");
     }
 
     const up = await uploadBufferToDrive({
@@ -83,8 +122,10 @@ export default async function handler(request: Request): Promise<Response> {
       mimeType,
       parentFolderId: folderId,
     });
+    console.timeLog(tLabel, "Drive file uploaded");
+    console.timeEnd(tLabel);
 
-    return Response.json({
+    return sendJson(request, res, {
       ok: true,
       fileId: up.id,
       fileName,
@@ -96,7 +137,7 @@ export default async function handler(request: Request): Promise<Response> {
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[upload-single]", e);
-    return Response.json({ ok: false, error: msg }, { status: 500 });
+    return sendJson(request, res, { ok: false, error: msg }, 500);
   }
 }
 
