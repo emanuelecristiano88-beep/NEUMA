@@ -41,7 +41,9 @@ const BURST_FRAME_GAP_MS = 90;
 const PHOTOS_PER_PHASE = 8;
 const TOTAL_PHOTOS = PHOTOS_PER_PHASE * 4;
 /** Vercel: body funzione ~4.5MB — più batch evitano FUNCTION_INVOCATION_FAILED */
-const UPLOAD_BATCH_SIZE = 8;
+const UPLOAD_BATCH_SIZE = 4;
+/** Manteniamo ogni body sotto ~2.8MB per margine su Vercel serverless. */
+const UPLOAD_BATCH_MAX_BYTES = 2_800_000;
 const MAX_OUTPUT_DIM = 1024; // downscale to reduce memory/traffic
 const JPEG_QUALITY = 0.82;
 const DEFAULT_METRICS: Metrics = { footLengthMm: 265, forefootWidthMm: 95 };
@@ -123,6 +125,32 @@ async function captureFrameAsJpeg(video: HTMLVideoElement) {
   });
 
   return blob;
+}
+
+function buildUploadBatches<T extends { blob: Blob }>(
+  items: T[],
+  maxFilesPerBatch: number,
+  maxBytesPerBatch: number
+): T[][] {
+  const out: T[][] = [];
+  let current: T[] = [];
+  let bytes = 0;
+
+  for (const item of items) {
+    const size = Math.max(0, item.blob.size || 0);
+    const wouldOverflowBytes = current.length > 0 && bytes + size > maxBytesPerBatch;
+    const wouldOverflowCount = current.length >= maxFilesPerBatch;
+    if (wouldOverflowBytes || wouldOverflowCount) {
+      out.push(current);
+      current = [];
+      bytes = 0;
+    }
+    current.push(item);
+    bytes += size;
+  }
+
+  if (current.length > 0) out.push(current);
+  return out;
 }
 
 function sleep(ms: number) {
@@ -786,14 +814,14 @@ export default function ScannerCattura() {
         (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `scan_${Date.now()}`);
       if (!scanId) setScanId(sessionScanId);
 
-      const batchCount = Math.max(1, Math.ceil(items.length / UPLOAD_BATCH_SIZE));
-      const useBatched = batchCount > 1 || items.length > UPLOAD_BATCH_SIZE;
+      const batches = buildUploadBatches(items, UPLOAD_BATCH_SIZE, UPLOAD_BATCH_MAX_BYTES);
+      const batchCount = Math.max(1, batches.length);
+      const useBatched = batchCount > 1;
 
       let driveFolderIdFromServer: string | undefined;
       let lastJson: Record<string, unknown> | null = null;
 
-      for (let b = 0; b < batchCount; b++) {
-        const slice = items.slice(b * UPLOAD_BATCH_SIZE, (b + 1) * UPLOAD_BATCH_SIZE);
+      const postBatch = async (slice: { blob: Blob; name: string }[], b: number, total: number) => {
         const form = new FormData();
         slice.forEach((item) => {
           form.append("photos", item.blob, item.name);
@@ -801,9 +829,9 @@ export default function ScannerCattura() {
         form.append("count", String(items.length));
         form.append("pair", "true");
         form.append("scanId", sessionScanId);
-        if (useBatched) {
+        if (total > 1) {
           form.append("batchIndex", String(b));
-          form.append("batchTotal", String(batchCount));
+          form.append("batchTotal", String(total));
           if (driveFolderIdFromServer) {
             form.append("driveFolderId", driveFolderIdFromServer);
           }
@@ -814,18 +842,22 @@ export default function ScannerCattura() {
           body: form,
           headers: uploadHeaders,
         });
-
         const text = await res.text().catch(() => "");
         if (!res.ok) {
           throw new Error(`POST fallito (${res.status}). ${text}`);
         }
-
-        let data: Record<string, unknown>;
         try {
-          data = JSON.parse(text) as Record<string, unknown>;
+          return JSON.parse(text) as Record<string, unknown>;
         } catch {
           throw new Error("Risposta API non valida (JSON)");
         }
+      };
+
+      for (let b = 0; b < batchCount; b++) {
+        const slice = batches[b] ?? [];
+        if (!slice.length) continue;
+        const data = await postBatch(slice, b, batchCount);
+
         lastJson = data;
 
         const st = data.status;
