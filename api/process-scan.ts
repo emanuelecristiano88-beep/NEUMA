@@ -12,7 +12,7 @@ import {
   isDriveConfigured,
   uploadBufferToDrive,
   getRootFolderId,
-} from "./lib/googleDrive";
+} from "./lib/googleDrive.js";
 
 export const config = { runtime: "nodejs", maxDuration: 120 };
 

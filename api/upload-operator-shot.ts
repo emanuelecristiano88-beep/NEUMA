@@ -2,7 +2,7 @@
  * Vercel Serverless (Node.js) — POST /api/upload-operator-shot
  * Singola foto dallo ScannerOperatore (cupola 32 settori).
  */
-import { isDriveConfigured, uploadBufferToDrive, getRootFolderId } from "./lib/googleDrive";
+import { isDriveConfigured, uploadBufferToDrive, getRootFolderId } from "./lib/googleDrive.js";
 
 export const config = { runtime: "nodejs", maxDuration: 30 };
 

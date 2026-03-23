@@ -41,11 +41,11 @@ const BURST_FRAME_GAP_MS = 90;
 const PHOTOS_PER_PHASE = 8;
 const TOTAL_PHOTOS = PHOTOS_PER_PHASE * 4;
 /** Vercel: body funzione ~4.5MB — più batch evitano FUNCTION_INVOCATION_FAILED */
-const UPLOAD_BATCH_SIZE = 2;
-/** Manteniamo ogni body sotto ~1.2MB per margine su Vercel serverless. */
-const UPLOAD_BATCH_MAX_BYTES = 1_200_000;
-const MAX_OUTPUT_DIM = 800; // downscale to reduce memory/traffic
-const JPEG_QUALITY = 0.68;
+const UPLOAD_BATCH_SIZE = 1;
+/** Manteniamo ogni body sotto ~0.55–0.65MB per margine su Vercel serverless. */
+const UPLOAD_BATCH_MAX_BYTES = 600_000;
+const MAX_OUTPUT_DIM = 640; // downscale aggressively to survive Vercel payload limits
+const JPEG_QUALITY = 0.56; // used for both JPEG and WebP quality
 const DEFAULT_METRICS: Metrics = { footLengthMm: 265, forefootWidthMm: 95 };
 
 const PHASES = SCAN_CAPTURE_PHASES;
@@ -108,24 +108,32 @@ async function captureFrameAsJpeg(video: HTMLVideoElement) {
   const vH = video.videoHeight || 720;
   if (!vW || !vH) return null;
 
-  const scale = Math.min(1, MAX_OUTPUT_DIM / Math.max(vW, vH));
-  const cW = Math.max(1, Math.round(vW * scale));
-  const cH = Math.max(1, Math.round(vH * scale));
+  const targetBytes = 550_000;
 
-  const canvas = document.createElement("canvas");
-  canvas.width = cW;
-  canvas.height = cH;
-  const ctx = canvas.getContext("2d", { alpha: false });
-  if (!ctx) return null;
+  const renderOnce = async (maxDim: number, quality: number): Promise<Blob | null> => {
+    const scale = Math.min(1, maxDim / Math.max(vW, vH));
+    const cW = Math.max(1, Math.round(vW * scale));
+    const cH = Math.max(1, Math.round(vH * scale));
 
-  ctx.drawImage(video, 0, 0, cW, cH);
+    const canvas = document.createElement("canvas");
+    canvas.width = cW;
+    canvas.height = cH;
+    const ctx = canvas.getContext("2d", { alpha: false });
+    if (!ctx) return null;
 
-  const blob = await new Promise<Blob | null>((resolve) => {
-    // WebP riduce drasticamente payload rispetto a JPEG (utile con limiti body Vercel).
-    canvas.toBlob((b) => resolve(b), "image/webp", JPEG_QUALITY);
-  });
+    ctx.drawImage(video, 0, 0, cW, cH);
 
-  return blob;
+    return new Promise<Blob | null>((resolve) => {
+      canvas.toBlob((b) => resolve(b), "image/webp", quality);
+    });
+  };
+
+  const first = await renderOnce(MAX_OUTPUT_DIM, JPEG_QUALITY);
+  if (first && first.size <= targetBytes) return first;
+
+  // Retry only if too large: stricter encode to survive Vercel payload limits.
+  const second = await renderOnce(Math.max(480, Math.floor(MAX_OUTPUT_DIM * 0.82)), Math.min(0.5, JPEG_QUALITY * 0.75));
+  return second;
 }
 
 function buildUploadBatches<T extends { blob: Blob }>(
