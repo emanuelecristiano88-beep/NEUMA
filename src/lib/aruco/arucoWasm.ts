@@ -15,6 +15,58 @@ let detector: import("@ar-js-org/aruco-rs").ARucoDetector | null = null;
 let initPromise: Promise<void> | null = null;
 const detectorByDictionary = new Map<string, import("@ar-js-org/aruco-rs").ARucoDetector>();
 
+function detectWith(det: import("@ar-js-org/aruco-rs").ARucoDetector, width: number, height: number, rgba: Uint8Array) {
+  try {
+    const raw = det.detect_image(width, height, rgba);
+    return normalizeDetections(raw);
+  } catch {
+    return [];
+  }
+}
+
+function buildEnhancedRgbaVariants(imageData: ImageData): Uint8Array[] {
+  const { data } = imageData;
+  const variants: Uint8Array[] = [];
+
+  // Variant 1: contrast stretch (helps low-ink print + room lighting).
+  {
+    const out = new Uint8Array(data.byteLength);
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const a = data[i + 3];
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+      const c = Math.max(0, Math.min(255, (gray - 128) * 1.65 + 128));
+      out[i] = c;
+      out[i + 1] = c;
+      out[i + 2] = c;
+      out[i + 3] = a;
+    }
+    variants.push(out);
+  }
+
+  // Variant 2: hard threshold (helps marker borders stand out).
+  {
+    const out = new Uint8Array(data.byteLength);
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const a = data[i + 3];
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+      const bw = gray > 145 ? 255 : 0;
+      out[i] = bw;
+      out[i + 1] = bw;
+      out[i + 2] = bw;
+      out[i + 3] = a;
+    }
+    variants.push(out);
+  }
+
+  return variants;
+}
+
 function normalizeDetections(raw: unknown): ArucoMarkerDetection[] {
   if (!Array.isArray(raw)) return [];
   const out: ArucoMarkerDetection[] = [];
@@ -67,12 +119,14 @@ export function detectArucoOnImageData(imageData: ImageData): ArucoMarkerDetecti
   if (!detector) return [];
   const { width, height, data } = imageData;
   const rgba = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-  try {
-    const raw = detector.detect_image(width, height, rgba);
-    return normalizeDetections(raw);
-  } catch {
-    return [];
+  const base = detectWith(detector, width, height, rgba);
+  if (base.length > 0) return base;
+  const variants = buildEnhancedRgbaVariants(imageData);
+  for (const v of variants) {
+    const hit = detectWith(detector, width, height, v);
+    if (hit.length > 0) return hit;
   }
+  return [];
 }
 
 async function getDetectorForDictionary(dictionaryName: string): Promise<import("@ar-js-org/aruco-rs").ARucoDetector | null> {
@@ -98,15 +152,15 @@ export async function detectArucoOnImageDataMultiDictionary(
 ): Promise<{ dictionary: string; detections: ArucoMarkerDetection[] } | null> {
   const { width, height, data } = imageData;
   const rgba = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  const variants = buildEnhancedRgbaVariants(imageData);
   for (const dict of dictionaries) {
     const d = await getDetectorForDictionary(dict);
     if (!d) continue;
-    try {
-      const raw = d.detect_image(width, height, rgba);
-      const detections = normalizeDetections(raw);
-      if (detections.length > 0) return { dictionary: dict, detections };
-    } catch {
-      // try next dictionary
+    const detections = detectWith(d, width, height, rgba);
+    if (detections.length > 0) return { dictionary: dict, detections };
+    for (const v of variants) {
+      const hit = detectWith(d, width, height, v);
+      if (hit.length > 0) return { dictionary: dict, detections: hit };
     }
   }
   return null;
