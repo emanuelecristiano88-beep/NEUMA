@@ -45,6 +45,14 @@ function getServiceAccountCredentials() {
   return cachedCreds;
 }
 
+function hasOAuthUserConfig(): boolean {
+  return Boolean(
+    process.env.GOOGLE_OAUTH_CLIENT_ID &&
+      process.env.GOOGLE_OAUTH_CLIENT_SECRET &&
+      process.env.GOOGLE_OAUTH_REFRESH_TOKEN
+  );
+}
+
 function base64Url(input: Buffer | string): string {
   const b = typeof input === "string" ? Buffer.from(input, "utf8") : input;
   return b
@@ -58,6 +66,32 @@ async function getAccessToken(): Promise<string> {
   const now = Date.now();
   if (cachedToken && cachedToken.expiresAtMs - now > 20_000) {
     return cachedToken.value;
+  }
+
+  // Preferred for personal Google Drive: upload as the real user (has quota).
+  if (hasOAuthUserConfig()) {
+    const data = await fetchJsonWithTimeout<{ access_token?: string; expires_in?: number }>(
+      "https://oauth2.googleapis.com/token",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: process.env.GOOGLE_OAUTH_CLIENT_ID as string,
+          client_secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET as string,
+          refresh_token: process.env.GOOGLE_OAUTH_REFRESH_TOKEN as string,
+          grant_type: "refresh_token",
+        }),
+      },
+      "google.oauth.refreshToken"
+    );
+    const token = typeof data.access_token === "string" ? data.access_token : "";
+    const expiresIn = typeof data.expires_in === "number" ? data.expires_in : 3600;
+    if (!token) throw new Error("Google OAuth user: access token mancante");
+    cachedToken = {
+      value: token,
+      expiresAtMs: now + Math.max(60, expiresIn - 30) * 1000,
+    };
+    return token;
   }
 
   const creds = getServiceAccountCredentials();
@@ -128,7 +162,9 @@ async function fetchJsonWithTimeout<T>(url: string, init: RequestInit, label: st
 }
 
 export function isDriveConfigured(): boolean {
-  return Boolean(process.env.GOOGLE_DRIVE_FOLDER_ID && process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  const hasFolder = Boolean(process.env.GOOGLE_DRIVE_FOLDER_ID);
+  const hasServiceAccount = Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  return hasFolder && (hasServiceAccount || hasOAuthUserConfig());
 }
 
 export async function createDriveSubfolder(parentFolderId: string, name: string): Promise<{ id: string }> {
