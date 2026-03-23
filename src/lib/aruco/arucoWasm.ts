@@ -5,8 +5,8 @@
 
 import type { ArucoMarkerDetection } from "./a4MarkerGeometry";
 
-/** Allinea al PDF guida stampa NEUMA: se usi un altro dizionario OpenCV, cambia qui (es. "ARUCO_MIP_36H12"). */
-export const ARUCO_DICTIONARY_NAME = "ARUCO";
+/** Allinea al PDF guida stampa NEUMA: marker stampati DICT_4X4_50 (ID 0–3). */
+export const ARUCO_DICTIONARY_NAME = "DICT_4X4_50";
 const FALLBACK_DICTIONARIES = ["DICT_4X4_50", "DICT_6X6_250"] as const;
 
 const MAX_HAMMING = 2;

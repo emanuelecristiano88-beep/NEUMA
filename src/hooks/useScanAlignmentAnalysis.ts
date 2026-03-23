@@ -170,12 +170,14 @@ function combineArucoAndHeuristic(
   const picked = pickCornerMarkers(markers, W, H);
   const { count, aspectOk } = scoreA4FromMarkers(picked);
   const fourVisible = count >= 4;
+  const threeVisible = markers.length >= 3;
   const tooCloseAruco = markersDominateFrame(picked, W, H);
   const tooClose = h.guide === "too_close" || tooCloseAruco;
 
   const footInFrame = h.footInFrame;
-  const markersDetected = fourVisible;
-  const isPositionCorrect = fourVisible && aspectOk && footInFrame && !tooClose;
+  const markersDetected = fourVisible || threeVisible;
+  const aspectPass = fourVisible ? aspectOk : true;
+  const isPositionCorrect = (fourVisible || threeVisible) && aspectPass && footInFrame && !tooClose;
 
   let guide: ScanGuideMode = "default";
   if (tooClose) guide = "too_close";
@@ -250,7 +252,7 @@ export function useScanAlignmentAnalysis(
     const vw = video.videoWidth;
     const vh = video.videoHeight;
     const useAruco = isArucoDetectorReady() && arucoEngineRef.current === "ready";
-    const maxSide = useAruco ? 480 : 240;
+    const maxSide = useAruco ? 720 : 240;
     const scale = Math.min(1, maxSide / Math.max(vw, vh));
     const w = Math.max(32, Math.round(vw * scale));
     const h = Math.max(32, Math.round(vh * scale));
@@ -282,7 +284,7 @@ export function useScanAlignmentAnalysis(
       markerCount = markers.length;
       next = combineArucoAndHeuristic(imageData, markers, "ready");
       const picked = pickCornerMarkers(markers, w, h);
-      if (picked.length >= 4) {
+      if (picked.length >= 3) {
         markerCentersNorm = picked.slice(0, 4).map((m) => {
           const c = getMarkerCentroid(m);
           return { x: c.x / w, y: c.y / h };

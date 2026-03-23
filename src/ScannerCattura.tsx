@@ -49,6 +49,7 @@ const TOTAL_PHOTOS = PHOTOS_PER_PHASE * 4;
 const UPLOAD_PHOTOS_PER_PHASE = 3;
 const RECON_PHOTOS_PER_PHASE_DEFAULT = 4;
 const RECON_PHOTOS_PER_PHASE_FAST = 5;
+const LIVE_MIN_ARUCO_MARKERS = 3;
 const ARUCO_MARKER_SIZE_MM = Number(import.meta.env.VITE_ARUCO_MARKER_SIZE_MM || 40);
 const MIN_ARUCO_SHARPNESS = 45;
 const MIN_FULL_ARUCO_PER_PHASE = 1;
@@ -497,10 +498,11 @@ export default function ScannerCattura() {
     (cameraState === "readyPhase" || cameraState === "capturingPhase") && phaseGuideAccepted;
   const alignment = useScanAlignmentAnalysis(videoRef, scanOverlayEnabled, phaseIndex);
   const frameTilt = useScanFrameOrientation(scanOverlayEnabled);
+  const shouldEnforceVerticalTilt = phaseIndex !== 0;
   const arucoRecognized =
     alignment.arucoEngine === "ready" &&
     alignment.markerCentersNorm != null &&
-    alignment.markerCentersNorm.length >= 4;
+    alignment.markerCentersNorm.length >= LIVE_MIN_ARUCO_MARKERS;
   const captureReady = phaseGuideAccepted && alignment.guide === "aligned" && arucoRecognized;
   const reconPhotosPerPhase = useMemo(() => {
     if (typeof navigator === "undefined") return RECON_PHOTOS_PER_PHASE_DEFAULT;
@@ -511,7 +513,7 @@ export default function ScannerCattura() {
       : RECON_PHOTOS_PER_PHASE_DEFAULT;
   }, []);
   const { tooTilted } = useDeviceTilt(
-    (cameraState === "readyPhase" || cameraState === "capturingPhase") && phaseGuideAccepted,
+    (cameraState === "readyPhase" || cameraState === "capturingPhase") && phaseGuideAccepted && shouldEnforceVerticalTilt,
     45
   );
 
@@ -1232,6 +1234,7 @@ export default function ScannerCattura() {
       ) : null}
 
       {tooTilted &&
+        shouldEnforceVerticalTilt &&
         (cameraState === "readyPhase" || cameraState === "capturingPhase") &&
         phaseGuideAccepted && (
         <div className="pointer-events-none absolute inset-0 z-[60] flex flex-col items-center justify-center bg-black/50 px-6">
@@ -1308,9 +1311,9 @@ export default function ScannerCattura() {
           <div className="pointer-events-none absolute left-3 top-[8.6rem] z-[86] rounded-lg border border-sky-500/45 bg-sky-950/60 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-sky-100">
             {alignment.arucoEngine !== "ready"
               ? "Calibrazione ArUco in avvio..."
-              : alignment.markerCount >= 4
+              : alignment.markerCount >= LIVE_MIN_ARUCO_MARKERS
                 ? alignment.guide === "aligned"
-                  ? "Marker ArUco OK (4/4)"
+                  ? `Marker ArUco OK (${Math.min(alignment.markerCount, 4)}/4)`
                   : "Marker ArUco OK - allinea la posizione"
                 : `Inquadra marker ArUco (${alignment.markerCount}/4)`}
           </div>
