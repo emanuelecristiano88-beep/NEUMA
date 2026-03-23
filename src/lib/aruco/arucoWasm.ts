@@ -7,7 +7,8 @@ import type { ArucoMarkerDetection } from "./a4MarkerGeometry";
 
 /** Allinea al PDF guida stampa NEUMA: marker stampati DICT_4X4_50 (ID 0–3). */
 export const ARUCO_DICTIONARY_NAME = "DICT_4X4_50";
-const FALLBACK_DICTIONARIES = ["DICT_4X4_50", "DICT_6X6_250"] as const;
+const FALLBACK_DICTIONARIES = ["ARUCO", "DICT_6X6_250"] as const;
+const ALL_DICTIONARIES = [ARUCO_DICTIONARY_NAME, ...FALLBACK_DICTIONARIES] as const;
 
 const MAX_HAMMING = 2;
 
@@ -96,8 +97,18 @@ export async function ensureArucoDetector(): Promise<import("@ar-js-org/aruco-rs
     initPromise = (async () => {
       const mod = await import("@ar-js-org/aruco-rs");
       await mod.default();
-      detector = new mod.ARucoDetector(ARUCO_DICTIONARY_NAME, MAX_HAMMING);
-      detectorByDictionary.set(ARUCO_DICTIONARY_NAME, detector);
+      for (const dict of ALL_DICTIONARIES) {
+        try {
+          const next = new mod.ARucoDetector(dict, MAX_HAMMING);
+          detectorByDictionary.set(dict, next);
+          if (!detector) detector = next;
+        } catch {
+          // Dictionary not exposed by current WASM build: skip.
+        }
+      }
+      if (!detector) {
+        throw new Error("Nessun dizionario ArUco disponibile nella build WASM.");
+      }
     })().catch((e: unknown) => {
       initPromise = null;
       throw e instanceof Error ? e : new Error(String(e));
@@ -116,15 +127,17 @@ export function isArucoDetectorReady(): boolean {
  * Esegue detect su frame RGBA (es. da getImageData).
  */
 export function detectArucoOnImageData(imageData: ImageData): ArucoMarkerDetection[] {
-  if (!detector) return [];
+  if (detectorByDictionary.size === 0) return [];
   const { width, height, data } = imageData;
   const rgba = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-  const base = detectWith(detector, width, height, rgba);
-  if (base.length > 0) return base;
   const variants = buildEnhancedRgbaVariants(imageData);
-  for (const v of variants) {
-    const hit = detectWith(detector, width, height, v);
-    if (hit.length > 0) return hit;
+  for (const d of detectorByDictionary.values()) {
+    const base = detectWith(d, width, height, rgba);
+    if (base.length > 0) return base;
+    for (const v of variants) {
+      const hit = detectWith(d, width, height, v);
+      if (hit.length > 0) return hit;
+    }
   }
   return [];
 }
@@ -148,7 +161,7 @@ async function getDetectorForDictionary(dictionaryName: string): Promise<import(
  */
 export async function detectArucoOnImageDataMultiDictionary(
   imageData: ImageData,
-  dictionaries: readonly string[] = [ARUCO_DICTIONARY_NAME, ...FALLBACK_DICTIONARIES]
+  dictionaries: readonly string[] = ALL_DICTIONARIES
 ): Promise<{ dictionary: string; detections: ArucoMarkerDetection[] } | null> {
   const { width, height, data } = imageData;
   const rgba = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
