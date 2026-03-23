@@ -837,31 +837,36 @@ export default function ScannerCattura() {
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const form = new FormData();
-        form.append("photo", item.blob, item.name);
+        form.append("photos", item.blob, item.name);
+        form.append("count", String(items.length));
+        form.append("pair", "true");
         form.append("scanId", sessionScanId);
-        form.append("fileName", item.name);
+        form.append("batchIndex", String(i));
+        form.append("batchTotal", String(items.length));
         if (driveFolderId) form.append("driveFolderId", driveFolderId);
 
-        const res = await fetch("/api/upload-single", {
+        const res = await fetch("/api/process-scan", {
           method: "POST",
           body: form,
           headers: uploadHeaders,
         });
         const text = await res.text().catch(() => "");
         if (!res.ok) {
-          throw new Error(`upload-single fallito (${res.status}) foto ${i + 1}/${items.length}. ${text}`);
+          throw new Error(`process-scan fallito (${res.status}) foto ${i + 1}/${items.length}. ${text}`);
         }
         let data: Record<string, unknown>;
         try {
           data = JSON.parse(text) as Record<string, unknown>;
         } catch {
-          throw new Error(`Risposta upload-single non valida (foto ${i + 1}/${items.length})`);
+          throw new Error(`Risposta process-scan non valida (foto ${i + 1}/${items.length})`);
         }
-        if (data.ok !== true || data.driveUploaded !== true) {
+        const st = data.status;
+        const driveOk = data.driveUploaded === true;
+        if ((st !== "partial" && st !== "success") || !driveOk) {
           throw new Error(
-            typeof data.error === "string"
-              ? `upload-single errore foto ${i + 1}/${items.length}: ${data.error}`
-              : `upload-single non ha caricato la foto ${i + 1}/${items.length}`
+            typeof data.message === "string"
+              ? `process-scan errore foto ${i + 1}/${items.length}: ${data.message}`
+              : `process-scan non ha caricato la foto ${i + 1}/${items.length}`
           );
         }
         if (typeof data.driveFolderId === "string" && data.driveFolderId) {
