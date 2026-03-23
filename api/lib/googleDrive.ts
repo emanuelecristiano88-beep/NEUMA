@@ -4,36 +4,12 @@
  * - GOOGLE_SERVICE_ACCOUNT_JSON: JSON completo del service account (stringa, una riga su Vercel)
  * - GOOGLE_DRIVE_FOLDER_ID: ID cartella Drive dove salvare (condividi la cartella con l'email del service account)
  */
-import { Readable } from "node:stream";
 import { google } from "googleapis";
 
 const SCOPES = ["https://www.googleapis.com/auth/drive"];
 const DRIVE_REQUEST_TIMEOUT_MS = 8_000;
 
-let cachedDrive: ReturnType<typeof google.drive> | null = null;
 let cachedAuth: google.auth.GoogleAuth | null = null;
-
-function getDriveClient() {
-  if (cachedDrive && cachedAuth) return cachedDrive;
-  cachedAuth = new google.auth.GoogleAuth({
-    credentials: getCredentials(),
-    scopes: SCOPES,
-  });
-  cachedDrive = google.drive({ version: "v3", auth: cachedAuth });
-  return cachedDrive;
-}
-
-async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  try {
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
-    });
-    return (await Promise.race([promise, timeoutPromise])) as T;
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
 
 function getCredentials(): Record<string, unknown> {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -46,32 +22,75 @@ function getCredentials(): Record<string, unknown> {
   }
 }
 
+function getGoogleAuth() {
+  if (cachedAuth) return cachedAuth;
+  cachedAuth = new google.auth.GoogleAuth({
+    credentials: getCredentials(),
+    scopes: SCOPES,
+  });
+  return cachedAuth;
+}
+
+async function getAccessToken(): Promise<string> {
+  const auth = getGoogleAuth();
+  const client = await auth.getClient();
+  const token = await client.getAccessToken();
+  const value = typeof token === "string" ? token : token?.token;
+  if (!value) throw new Error("Google auth: access token mancante");
+  return value;
+}
+
+async function fetchJsonWithTimeout<T>(url: string, init: RequestInit, label: string): Promise<T> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), DRIVE_REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      ...init,
+      signal: ctrl.signal,
+    });
+    const txt = await res.text();
+    if (!res.ok) {
+      throw new Error(`${label} HTTP ${res.status}: ${txt.slice(0, 500)}`);
+    }
+    try {
+      return JSON.parse(txt) as T;
+    } catch {
+      throw new Error(`${label} JSON non valido`);
+    }
+  } catch (e: unknown) {
+    if (ctrl.signal.aborted) {
+      throw new Error(`${label} timeout after ${DRIVE_REQUEST_TIMEOUT_MS}ms`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function isDriveConfigured(): boolean {
   return Boolean(process.env.GOOGLE_DRIVE_FOLDER_ID && process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
 }
 
 export async function createDriveSubfolder(parentFolderId: string, name: string): Promise<{ id: string }> {
-  const drive = getDriveClient();
+  const token = await getAccessToken();
   const safeName = name.replace(/[/\\?%*:|"<>]/g, "-").slice(0, 200);
-  const res = await withTimeout(
-    drive.files.create(
-      {
-        requestBody: {
-          name: safeName,
-          mimeType: "application/vnd.google-apps.folder",
-          parents: [parentFolderId],
-        },
-        fields: "id",
+  const data = await fetchJsonWithTimeout<{ id?: string }>(
+    "https://www.googleapis.com/drive/v3/files?fields=id",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
       },
-      {
-        timeout: DRIVE_REQUEST_TIMEOUT_MS,
-        retry: false,
-      }
-    ),
-    DRIVE_REQUEST_TIMEOUT_MS + 2_000,
-    "drive.files.create(folder)"
+      body: JSON.stringify({
+        name: safeName,
+        mimeType: "application/vnd.google-apps.folder",
+        parents: [parentFolderId],
+      }),
+    },
+    "drive.createFolder"
   );
-  const id = res.data.id;
+  const id = data.id;
   if (!id) throw new Error("Drive: cartella non creata");
   return { id };
 }
@@ -82,32 +101,41 @@ export async function uploadBufferToDrive(params: {
   mimeType: string;
   parentFolderId: string;
 }): Promise<{ id: string; webViewLink?: string | null }> {
-  const drive = getDriveClient();
+  const token = await getAccessToken();
   const safeName = params.fileName.replace(/[/\\?%*:|"<>]/g, "-").slice(0, 200);
+  const boundary = `neuma_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const meta = Buffer.from(
+    JSON.stringify({
+      name: safeName,
+      parents: [params.parentFolderId],
+    }),
+    "utf8"
+  );
+  const head = Buffer.from(
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,
+    "utf8"
+  );
+  const mid = Buffer.from(
+    `\r\n--${boundary}\r\nContent-Type: ${params.mimeType}\r\n\r\n`,
+    "utf8"
+  );
+  const tail = Buffer.from(`\r\n--${boundary}--`, "utf8");
+  const body = Buffer.concat([head, meta, mid, params.buffer, tail]);
 
-  const res = await withTimeout(
-    drive.files.create(
-      {
-        requestBody: {
-          name: safeName,
-          parents: [params.parentFolderId],
-        },
-        media: {
-          mimeType: params.mimeType,
-          body: Readable.from(params.buffer),
-        },
-        fields: "id",
+  const data = await fetchJsonWithTimeout<{ id?: string }>(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
       },
-      {
-        timeout: DRIVE_REQUEST_TIMEOUT_MS,
-        retry: false,
-      }
-    ),
-    DRIVE_REQUEST_TIMEOUT_MS + 2_000,
-    `drive.files.create(file:${safeName})`
+      body,
+    },
+    `drive.uploadFile(${safeName})`
   );
 
-  return { id: res.data.id ?? "", webViewLink: undefined };
+  return { id: data.id ?? "", webViewLink: undefined };
 }
 
 export function getRootFolderId(): string {
