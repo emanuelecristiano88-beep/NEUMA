@@ -4,20 +4,30 @@ import type { ScanAlignmentResult } from "../../hooks/useScanAlignmentAnalysis";
 import type { ScanFrameTilt } from "../../hooks/useScanFrameOrientation";
 
 const ELECTRIC = "#2563eb";
+const PARTIAL = "#facc15";
 const LOCKED = "#22c55e";
+const BAD = "#ef4444";
 
 /** Bracket + quadratino agli angoli: allinea i 4 marker ArUco del foglio a questo riquadro blu */
 function ArucoCornerHint({
   position,
   locked,
+  partial,
 }: {
   position: "tl" | "tr" | "bl" | "br";
   locked: boolean;
+  partial: boolean;
 }) {
   const ring = locked
     ? "border-emerald-400/90 shadow-[0_0_10px_rgba(52,211,153,0.5)]"
+    : partial
+      ? "border-yellow-300/90 shadow-[0_0_10px_rgba(250,204,21,0.45)]"
     : "border-white/[0.92] shadow-[0_1px_2px_rgba(0,0,0,0.2)]";
-  const sq = locked ? "border-emerald-300/80 bg-emerald-400/20" : "border-white/80 bg-white/10";
+  const sq = locked
+    ? "border-emerald-300/80 bg-emerald-400/20"
+    : partial
+      ? "border-yellow-200/80 bg-yellow-400/20"
+      : "border-white/80 bg-white/10";
 
   const outer = {
     tl: "left-2.5 top-2.5",
@@ -70,9 +80,9 @@ export default function ScannerAlignmentOverlay({
 }: ScannerAlignmentOverlayProps) {
   const { guide, markerCentersNorm, arucoEngine } = alignment;
 
-  const borderWarning = guide === "too_close";
-
   const arucoLocked = arucoEngine === "ready" && markerCentersNorm != null && markerCentersNorm.length >= 4;
+  const arucoPartial = arucoEngine === "ready" && alignment.markerCount >= 2 && !arucoLocked;
+  const arucoBad = guide === "too_close" || (arucoEngine === "ready" && alignment.markerCount < 2);
   const isArucoLandscape = useMemo(() => {
     if (!arucoLocked || !markerCentersNorm || markerCentersNorm.length < 4) return false;
     let minX = Number.POSITIVE_INFINITY;
@@ -98,8 +108,8 @@ export default function ScannerAlignmentOverlay({
     switch (phaseIndex) {
       case 0:
         return landscapeByAruco
-          ? "h-[42dvh] w-[76vw] max-h-[min(62dvh,520px)] max-w-[min(96vw,660px)]"
-          : "h-[50dvh] w-[64vw] max-h-[min(72dvh,600px)] max-w-[min(92vw,560px)]";
+          ? "h-[48dvh] w-[82vw] max-h-[min(68dvh,600px)] max-w-[min(96vw,740px)]"
+          : "h-[56dvh] w-[72vw] max-h-[min(76dvh,680px)] max-w-[min(94vw,640px)]";
       case 1:
       case 2:
         return landscapeByAruco
@@ -116,14 +126,23 @@ export default function ScannerAlignmentOverlay({
     }
   }, [isArucoLandscape, phaseIndex]);
 
-  const frameStrokeClass = borderWarning
-    ? "border-amber-400/80 shadow-[0_0_0_1px_rgba(251,191,36,0.4)]"
+  const frameStrokeClass = arucoBad
+    ? "border-red-400/85 shadow-[0_0_24px_rgba(239,68,68,0.25)]"
     : arucoLocked
       ? "border-emerald-400/80 shadow-[0_0_32px_rgba(34,197,94,0.24)]"
-      : "border-[#2563eb]/50 shadow-[0_0_40px_rgba(37,99,235,0.18)]";
+      : arucoPartial
+        ? "border-yellow-300/85 shadow-[0_0_36px_rgba(250,204,21,0.2)]"
+        : "border-[#2563eb]/50 shadow-[0_0_40px_rgba(37,99,235,0.18)]";
 
-  const frameBgClass = arucoLocked ? "bg-emerald-500/30" : "bg-[#2563eb]/50";
-  const reticleColor = arucoLocked ? LOCKED : ELECTRIC;
+  const frameBgClass = arucoLocked
+    ? "bg-emerald-500/30"
+    : arucoPartial
+      ? "bg-yellow-500/25"
+      : arucoBad
+        ? "bg-red-500/22"
+        : "bg-[#2563eb]/50";
+  const pulseClass = arucoPartial ? "animate-pulse" : "";
+  const reticleColor = arucoLocked ? LOCKED : arucoPartial ? PARTIAL : arucoBad ? BAD : ELECTRIC;
 
   return (
     <div className={cn("pointer-events-none flex min-h-0 flex-1 flex-col", className)}>
@@ -142,6 +161,7 @@ export default function ScannerAlignmentOverlay({
             <div
               className={cn(
                 "relative box-border rounded-3xl border-2 transition-[border-color,box-shadow] duration-300",
+                pulseClass,
                 bboxShapeClass,
                 frameBgClass,
                 frameStrokeClass
@@ -151,10 +171,10 @@ export default function ScannerAlignmentOverlay({
               <span className="sr-only">
                 Allinea i quattro marker ArUco stampati sugli angoli di questo riquadro blu.
               </span>
-              <ArucoCornerHint position="tl" locked={arucoLocked} />
-              <ArucoCornerHint position="tr" locked={arucoLocked} />
-              <ArucoCornerHint position="bl" locked={arucoLocked} />
-              <ArucoCornerHint position="br" locked={arucoLocked} />
+              <ArucoCornerHint position="tl" locked={arucoLocked} partial={arucoPartial} />
+              <ArucoCornerHint position="tr" locked={arucoLocked} partial={arucoPartial} />
+              <ArucoCornerHint position="bl" locked={arucoLocked} partial={arucoPartial} />
+              <ArucoCornerHint position="br" locked={arucoLocked} partial={arucoPartial} />
               <div className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
                 <svg
                   width="140"

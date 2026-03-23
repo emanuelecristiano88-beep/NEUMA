@@ -14,9 +14,8 @@ import { useScanAlignmentAnalysis } from "./hooks/useScanAlignmentAnalysis";
 import { requestOrientationAccess, useDeviceTilt } from "./hooks/useDeviceTilt";
 import { useScanFrameOrientation } from "./hooks/useScanFrameOrientation";
 import ScannerAlignmentOverlay from "./components/scanner/ScannerAlignmentOverlay";
-import ScannerPhaseGuidePanel from "./components/scanner/ScannerPhaseGuidePanel";
+import ScanPhaseGuideIllustration from "./components/scanner/ScanPhaseGuideIllustration";
 import ArucoMarkerPins from "./components/scanner/ArucoMarkerPins";
-import ScannerShutterButton from "./components/scanner/ScannerShutterButton";
 import BiometryOverlayPreview from "./components/scanner/BiometryOverlayPreview";
 import { computeNeumaBiometryFromImageData, type NeumaBiometryResult } from "./lib/biometry";
 import type { Mat3 } from "./lib/biometry/homography";
@@ -42,17 +41,19 @@ type FootId = "LEFT" | "RIGHT";
 /** Allineamento “perfetto” stabile per questo tempo → avvio automatico burst */
 const STABLE_ALIGNMENT_MS = 800;
 /** Intervallo tra frame del burst nascosto (solo backend, nessun feedback visivo per frame) */
-const BURST_FRAME_GAP_MS = 90;
+const BURST_FRAME_GAP_MS = 70;
+const PHASE_COUNTDOWN_START = 2;
+const PHASE_SUCCESS_HOLD_MS = 650;
 const PHOTOS_PER_PHASE = 8;
 const TOTAL_PHOTOS = PHOTOS_PER_PHASE * 4;
 /** Upload cloud: sottoinsieme per fase per ridurre timeout serverless (es. 3 x 4 x 2 piedi = 24 foto). */
 const UPLOAD_PHOTOS_PER_PHASE = 3;
 const RECON_PHOTOS_PER_PHASE_DEFAULT = 4;
 const RECON_PHOTOS_PER_PHASE_FAST = 5;
-const LIVE_MIN_ARUCO_MARKERS = 3;
+const LIVE_MIN_ARUCO_MARKERS = 2;
 const ARUCO_MARKER_SIZE_MM = Number(import.meta.env.VITE_ARUCO_MARKER_SIZE_MM || 40);
 const MIN_ARUCO_SHARPNESS = 45;
-const MIN_FULL_ARUCO_PER_PHASE = 1;
+const MIN_FULL_ARUCO_PER_FOOT = 2;
 const MAX_OUTPUT_DIM = 1024; // compress before upload, keep aspect ratio
 const JPEG_QUALITY = 0.5; // aggressive JPEG quality for upload
 const MAX_UPLOAD_FILE_BYTES = 200 * 1024; // target < 200KB
@@ -276,6 +277,12 @@ async function validateArucoOnPhoto(blob: Blob) {
 
   if (hasFullAruco) {
     const biometry = await computeNeumaBiometryFromImageData(imageData, { markers: picked, pxPerMm: 4 });
+    const outsideSheet = biometry.calibration.warnings.some((w) =>
+      /parzialmente fuori dal foglio raddrizzato/i.test(w)
+    );
+    if (outsideSheet) {
+      return { ok: false as const, reason: "foot_outside_sheet" as const };
+    }
     const hallux = biometry.keypoints.find((k) => k.id === "hallux_tip");
     const heel = biometry.keypoints.find((k) => k.id === "heel_center");
     const arch = biometry.keypoints.find((k) => k.id === "arch_medial");
@@ -323,13 +330,8 @@ function ProcessingView({
   return (
     <div className="absolute inset-0 z-70 flex items-center justify-center bg-zinc-950/75 backdrop-blur-sm px-6">
       <div className="w-full max-w-xl rounded-2xl border border-zinc-800 bg-zinc-900/90 p-6 text-center backdrop-blur-md">
-        <div className="font-mono text-xs tracking-[0.18em] text-blue-500">
-          ELABORAZIONE IN CORSO
-        </div>
-        <div className="mt-3 font-sans text-2xl text-zinc-100">Stiamo generando il tuo modello ...</div>
-        <div className="mt-2 text-sm text-zinc-200/95">
-          Può richiedere alcuni minuti. Non chiudere la pagina.
-        </div>
+        <div className="mt-1 font-sans text-3xl font-semibold text-zinc-100">Fatto</div>
+        <div className="mt-2 text-sm text-zinc-200/95">Creazione in corso</div>
 
         <div className="mt-5 h-3 w-full overflow-hidden rounded-full border border-zinc-800 bg-zinc-950/80">
           <div
@@ -405,8 +407,8 @@ export default function ScannerCattura() {
   const [phaseIndex, setPhaseIndex] = useState<PhaseId>(0);
   const phase = PHASES[phaseIndex];
   const [capturedInPhase, setCapturedInPhase] = useState<number>(0);
-  /** Dopo il pannello illustrativo per la fase corrente */
-  const [phaseGuideAccepted, setPhaseGuideAccepted] = useState(false);
+  /** Tutorial opzionale: il flusso scanner non deve dipendere da questo stato. */
+  const phaseGuideAccepted = true;
 
   const photos = useMemo(() => [...photosLeft, ...photosRight], [photosLeft, photosRight]);
   const pairComplete = photosLeft.length === TOTAL_PHOTOS && photosRight.length === TOTAL_PHOTOS;
@@ -494,8 +496,7 @@ export default function ScannerCattura() {
     };
   }, [pairComplete, photosLeft]);
 
-  const scanOverlayEnabled =
-    (cameraState === "readyPhase" || cameraState === "capturingPhase") && phaseGuideAccepted;
+  const scanOverlayEnabled = cameraState === "readyPhase" || cameraState === "capturingPhase";
   const alignment = useScanAlignmentAnalysis(videoRef, scanOverlayEnabled, phaseIndex);
   const frameTilt = useScanFrameOrientation(scanOverlayEnabled);
   const shouldEnforceVerticalTilt = phaseIndex !== 0;
@@ -503,7 +504,7 @@ export default function ScannerCattura() {
     alignment.arucoEngine === "ready" &&
     alignment.markerCentersNorm != null &&
     alignment.markerCentersNorm.length >= LIVE_MIN_ARUCO_MARKERS;
-  const captureReady = phaseGuideAccepted && alignment.guide === "aligned" && arucoRecognized;
+  const captureReady = alignment.guide === "aligned" && arucoRecognized;
   const reconPhotosPerPhase = useMemo(() => {
     if (typeof navigator === "undefined") return RECON_PHOTOS_PER_PHASE_DEFAULT;
     const cores = navigator.hardwareConcurrency ?? 4;
@@ -513,13 +514,9 @@ export default function ScannerCattura() {
       : RECON_PHOTOS_PER_PHASE_DEFAULT;
   }, []);
   const { tooTilted } = useDeviceTilt(
-    (cameraState === "readyPhase" || cameraState === "capturingPhase") && phaseGuideAccepted && shouldEnforceVerticalTilt,
+    (cameraState === "readyPhase" || cameraState === "capturingPhase") && shouldEnforceVerticalTilt,
     45
   );
-
-  useEffect(() => {
-    setPhaseGuideAccepted(false);
-  }, [phaseIndex, currentFoot]);
 
   useEffect(() => {
     const prev = prevCameraStateRef.current;
@@ -528,10 +525,6 @@ export default function ScannerCattura() {
       capturePhaseLockRef.current = false;
     }
   }, [cameraState]);
-
-  const overlayStep = useMemo(() => {
-    return `STEP: [${phaseIndex + 1}/4] - ${phase.name}`;
-  }, [phaseIndex, phase.name]);
 
   /** Una tacca per fase (4): percezione 1 acquisizione / fase, 8 frame nascosti sotto */
   const progressTacks = useMemo(() => {
@@ -642,7 +635,7 @@ export default function ScannerCattura() {
     setProcessingReady(false);
     setProcessingProgress(0);
 
-    const durationMs = 3000;
+    const durationMs = 1600;
     const startedAt = performance.now();
 
     processingIntervalRef.current = window.setInterval(() => {
@@ -876,7 +869,6 @@ export default function ScannerCattura() {
    */
   const beginPhaseBurstSequence = () => {
     if (!videoRef.current) return;
-    if (!phaseGuideAccepted) return;
     if (!captureReady) return;
     if (burstInFlightRef.current) return;
     if (cameraState !== "readyPhase") return;
@@ -893,7 +885,7 @@ export default function ScannerCattura() {
 
     void (async () => {
       try {
-        for (let n = 3; n >= 1; n--) {
+        for (let n = PHASE_COUNTDOWN_START; n >= 1; n--) {
           if (burstCancelledRef.current) return;
           setBurstCountdown(n);
           await sleep(1000);
@@ -943,7 +935,7 @@ export default function ScannerCattura() {
         if (navigator.vibrate) navigator.vibrate([10, 45, 15]);
         await playClick(audioCtxRef);
 
-        await sleep(1350);
+        await sleep(PHASE_SUCCESS_HOLD_MS);
         if (burstCancelledRef.current) return;
         setCapturedInPhase(PHOTOS_PER_PHASE);
       } catch {
@@ -964,14 +956,13 @@ export default function ScannerCattura() {
 
   useEffect(() => {
     if (cameraState !== "readyPhase") return;
-    if (!phaseGuideAccepted) return;
     if (!captureReady) return;
     if (alignment.stableAlignedMs < STABLE_ALIGNMENT_MS) return;
     if (autoStartedPhaseRef.current === phaseIndex) return;
     if (!videoRef.current) return;
     if (burstInFlightRef.current) return;
     startBurstSequenceRef.current();
-  }, [cameraState, alignment.stableAlignedMs, phaseIndex, phaseGuideAccepted, captureReady]);
+  }, [cameraState, alignment.stableAlignedMs, phaseIndex, captureReady]);
 
   // stop phase when reached 8
   useEffect(() => {
@@ -1062,20 +1053,19 @@ export default function ScannerCattura() {
       ];
 
       const validations = await Promise.all(items.map((it) => validateArucoOnPhoto(it.blob)));
-      const fullArucoCountByPhase = new Map<string, number>();
+      const fullArucoCountByFoot = new Map<FootId, number>();
       for (let i = 0; i < validations.length; i++) {
         const v = validations[i];
         if (!v.ok || !v.hasFullAruco) continue;
-        const key = `${items[i].foot}-${items[i].phaseId}`;
-        fullArucoCountByPhase.set(key, (fullArucoCountByPhase.get(key) ?? 0) + 1);
+        const foot = items[i].foot;
+        fullArucoCountByFoot.set(foot, (fullArucoCountByFoot.get(foot) ?? 0) + 1);
       }
-      const missingCalibration = items.find((it) => {
-        const key = `${it.foot}-${it.phaseId}`;
-        return (fullArucoCountByPhase.get(key) ?? 0) < MIN_FULL_ARUCO_PER_PHASE;
-      });
-      if (missingCalibration) {
+      const missingFootCalibration = (["LEFT", "RIGHT"] as const).find(
+        (foot) => (fullArucoCountByFoot.get(foot) ?? 0) < MIN_FULL_ARUCO_PER_FOOT
+      );
+      if (missingFootCalibration) {
         throw new Error(
-          `Fase ${missingCalibration.phaseId + 1} ${missingCalibration.foot === "LEFT" ? "piede sinistro" : "piede destro"}: manca almeno una foto con 4 marker ArUco visibili. Rifai la fase mantenendo il foglio piu in vista.`
+          `Calibrazione ${missingFootCalibration === "LEFT" ? "piede sinistro" : "piede destro"} insufficiente: servono almeno ${MIN_FULL_ARUCO_PER_FOOT} foto con 4 marker ArUco visibili.`
         );
       }
       const firstInvalidIdx = validations.findIndex((v) => !v.ok);
@@ -1089,6 +1079,11 @@ export default function ScannerCattura() {
         if (invalid.reason === "foot_points_missing") {
           throw new Error(
             `Foto ${firstInvalidIdx + 1}/${items.length} valida ArUco ma punti piede incompleti (alluce/tallone/arco). Inquadratura non valida, invio bloccato.`
+          );
+        }
+        if (invalid.reason === "foot_outside_sheet") {
+          throw new Error(
+            `Piede troppo fuori. Piede grande? Mettilo in diagonale e riprova.`
           );
         }
         throw new Error(
@@ -1239,15 +1234,6 @@ export default function ScannerCattura() {
         />
       )}
 
-      {/* Pannello illustrativo prima di ogni fase (cliente + operatore) */}
-      {cameraState === "readyPhase" && !phaseGuideAccepted ? (
-        <ScannerPhaseGuidePanel
-          phaseId={phaseIndex}
-          foot={currentFoot}
-          onContinue={() => setPhaseGuideAccepted(true)}
-        />
-      ) : null}
-
       {/* Overlay: bbox che segue il giroscopio + marker ArUco — solo dopo conferma guida */}
       {scanOverlayEnabled ? (
         <>
@@ -1262,7 +1248,7 @@ export default function ScannerCattura() {
             videoRef={videoRef}
             containerRef={videoContainerRef}
             markerCentersNorm={alignment.markerCentersNorm}
-            visible={alignment.markerCentersNorm != null && alignment.markerCentersNorm.length >= 4}
+            visible={alignment.markerCentersNorm != null && alignment.markerCentersNorm.length >= LIVE_MIN_ARUCO_MARKERS}
           />
         </>
       ) : null}
@@ -1270,7 +1256,7 @@ export default function ScannerCattura() {
       {tooTilted &&
         shouldEnforceVerticalTilt &&
         (cameraState === "readyPhase" || cameraState === "capturingPhase") &&
-        phaseGuideAccepted && (
+         (
         <div className="pointer-events-none absolute inset-0 z-[60] flex flex-col items-center justify-center bg-black/50 px-6">
           <motion.div
             animate={{ rotate: [28, 0, 28] }}
@@ -1295,61 +1281,60 @@ export default function ScannerCattura() {
       >
         {/* Angoli: nessun conteggio foto in sessione (percezione “un colpo” per fase) */}
         <div className="pointer-events-none absolute left-0 top-0 z-[85] flex max-w-[min(85vw,280px)] flex-col gap-1.5 px-3 pt-[max(0.5rem,env(safe-area-inset-top))]">
-          <div className={`${techBadgeClass} py-1.5 text-[9px]`}>UNIT: SCANNER_V1</div>
           {(cameraState === "capturingPhase" || cameraState === "readyPhase") && (
-            <div className="font-mono text-[10px] font-bold uppercase leading-tight tracking-[0.08em] text-zinc-400">
-              {cameraState === "capturingPhase" ? "Acquisizione attiva" : "Pronto"}
+            <div className="rounded-md border border-white/10 bg-black/25 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-300 backdrop-blur-[1px]">
+              {currentFoot === "LEFT" ? "Piede sinistro" : "Piede destro"}
             </div>
           )}
           {(cameraState === "capturingPhase" || cameraState === "readyPhase") && (
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-              {currentFoot === "LEFT" ? "Piede sinistro" : "Piede destro"}
-            </div>
+            <div className="text-[10px] text-white/60">Muovi il telefono</div>
+          )}
+          {(cameraState === "capturingPhase" || cameraState === "readyPhase") && (
+            <div className="text-[10px] text-white/45">Non muoverti</div>
           )}
           {cameraState !== "capturingPhase" && cameraState !== "readyPhase" ? (
             <div className={`${techBadgeClass} py-1.5 text-[9px] text-zinc-500`}>NEUMA · PHOTOGRAMMETRY</div>
           ) : null}
         </div>
-        <div className="pointer-events-none absolute right-0 top-0 z-[85] flex flex-col items-end gap-1.5 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] text-right">
-          <div className={`${techBadgeClass} py-1.5 text-[9px]`}>
-            <span className={accentBadgeClass}>SCAN</span> {scanId ? scanId.slice(0, 8) : "—"}
+        {cameraState !== "capturingPhase" && cameraState !== "readyPhase" && (
+          <div className="pointer-events-none absolute right-0 top-0 z-[85] flex flex-col items-end gap-1.5 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] text-right">
+            <div className={`${techBadgeClass} py-1.5 text-[9px]`}>
+              <span className={accentBadgeClass}>SCAN</span> {scanId ? scanId.slice(0, 8) : "—"}
+            </div>
           </div>
-        </div>
-        <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-60 flex items-end justify-between px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <div className={`${techBadgeClass} py-1.5 text-[9px]`}>
-            TIMER: {cameraState === "capturingPhase" ? formatMmSs(timerSeconds) : "—"}
-          </div>
-          <div className={`${techBadgeClass} py-1.5 text-[9px]`}>
-            FPS: {cameraState === "capturingPhase" ? String(fps || "--") : "--"}
-          </div>
-        </div>
+        )}
 
         {/* Istruzione fase: grande, leggibile, fascia scura semitrasparente (non a tutto schermo) */}
         {(cameraState === "readyPhase" || cameraState === "capturingPhase") &&
-          phaseGuideAccepted &&
           alignment.guide === "too_close" && (
           <div className="pointer-events-none absolute left-3 top-[6.25rem] z-[86] max-w-[min(90vw,340px)] rounded-lg border border-amber-500/50 bg-amber-950/70 px-3 py-2 text-[11px] font-semibold uppercase leading-snug tracking-wide text-amber-100 shadow-lg sm:text-xs">
-            ALLONTANATI — Il foglio deve essere interamente visibile
+            Più lontano
           </div>
         )}
         {(cameraState === "readyPhase" || cameraState === "capturingPhase") &&
-          phaseGuideAccepted &&
           captureReady && (
           <div className="pointer-events-none absolute left-3 top-[6.25rem] z-[86] rounded-lg border border-emerald-500/45 bg-emerald-950/60 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-100">
-            Posizione ottimale
+            Perfetto
           </div>
         )}
         {(cameraState === "readyPhase" || cameraState === "capturingPhase") &&
-          phaseGuideAccepted &&
           !captureReady && (
           <div className="pointer-events-none absolute left-3 top-[8.6rem] z-[86] rounded-lg border border-sky-500/45 bg-sky-950/60 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-sky-100">
             {alignment.arucoEngine !== "ready"
-              ? "Calibrazione ArUco in avvio..."
+              ? "Ci siamo"
               : alignment.markerCount >= LIVE_MIN_ARUCO_MARKERS
                 ? alignment.guide === "aligned"
-                  ? `Marker ArUco OK (${Math.min(alignment.markerCount, 4)}/4)`
-                  : "Marker ArUco OK - allinea la posizione"
-                : `Inquadra marker ArUco (${alignment.markerCount}/4)`}
+                  ? "Ci sei quasi"
+                  : "Allinea i punti"
+                : "Allinea i punti"}
+          </div>
+        )}
+
+        {(cameraState === "readyPhase" || cameraState === "capturingPhase") && (
+          <div className="pointer-events-none absolute right-2 top-[5.4rem] z-[86] w-[min(44vw,220px)]">
+            <div className="overflow-hidden rounded-xl border border-white/15 bg-black/45 shadow-lg backdrop-blur-[1px]">
+              <ScanPhaseGuideIllustration phaseId={phaseIndex} variant="compact" />
+            </div>
           </div>
         )}
 
@@ -1374,16 +1359,21 @@ export default function ScannerCattura() {
               className="pointer-events-none absolute inset-0 z-[91] flex flex-col items-center justify-center bg-black/40 backdrop-blur-[1px]"
             >
               <motion.div
-                initial={{ scale: 0.62, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ type: "spring", stiffness: 440, damping: 26 }}
+                initial={{ scale: 0.72, opacity: 0 }}
+                animate={{ scale: [0.86, 1.06, 1], opacity: 1 }}
+                transition={{ duration: 0.34, ease: "easeOut" }}
                 className="flex flex-col items-center gap-4 px-6"
               >
-                <div className="flex h-[72px] w-[72px] items-center justify-center rounded-full border-2 border-emerald-400/80 bg-emerald-500/15 shadow-[0_0_52px_rgba(52,211,153,0.32)]">
+                <motion.div
+                  initial={{ scale: 0.9 }}
+                  animate={{ scale: [0.95, 1.08, 1] }}
+                  transition={{ duration: 0.32, ease: "easeOut" }}
+                  className="flex h-[74px] w-[74px] items-center justify-center rounded-full border-2 border-emerald-400/80 bg-emerald-500/15 shadow-[0_0_52px_rgba(52,211,153,0.32)]"
+                >
                   <Check className="h-10 w-10 text-emerald-200" strokeWidth={2.75} aria-hidden />
-                </div>
+                </motion.div>
                 <p className="max-w-[min(90vw,320px)] text-center text-lg font-semibold tracking-tight text-white drop-shadow-lg">
-                  Acquisizione completata
+                  Fatto
                 </p>
               </motion.div>
             </motion.div>
@@ -1391,21 +1381,23 @@ export default function ScannerCattura() {
         </AnimatePresence>
 
         {(cameraState === "readyPhase" || cameraState === "capturingPhase") &&
-          phaseGuideAccepted &&
           !(cameraState === "capturingPhase" && showAcquisitionComplete) && (
-          <div className="pointer-events-none absolute bottom-[7.5rem] left-1/2 z-[58] w-[min(96vw,560px)] max-w-[100vw] -translate-x-1/2 px-3 sm:bottom-[8.25rem]">
-            <p
-              className={cn(
-                "rounded-2xl border border-white/10 px-4 py-3 text-center font-semibold leading-snug text-white shadow-lg",
-                "bg-black/40 text-base sm:text-xl sm:leading-normal"
+          <div className="pointer-events-none absolute bottom-[4.2rem] left-1/2 z-[58] w-[min(88vw,460px)] max-w-[100vw] -translate-x-1/2 px-3 sm:bottom-[4.9rem]">
+            <div className="rounded-xl border border-white/10 bg-black/22 px-3 py-2 text-center shadow-lg">
+              <p
+                className={cn(
+                  "font-medium leading-snug text-white",
+                  "text-[13px] sm:text-[14px] sm:leading-normal"
+                )}
+              >
+                {captureReady ? "Tieni fermo" : "Allinea i punti"}
+              </p>
+              {!captureReady && (
+                <p className="mt-1 text-[11px] leading-tight text-white/70">
+                  Piede grande? In diagonale
+                </p>
               )}
-            >
-              {cameraState === "capturingPhase"
-                ? burstCountdown != null
-                  ? "Resta fermo: acquisizione tra pochi secondi…"
-                  : "Acquisizione in corso… mantieni il telefono stabile."
-                : phase.instruction}
-            </p>
+            </div>
           </div>
         )}
 
@@ -1492,29 +1484,14 @@ export default function ScannerCattura() {
               className="absolute inset-0 z-[90] flex items-center justify-center bg-black/80 px-6 backdrop-blur-sm"
             >
               <div className={phaseCardClass}>
-                <div className="font-mono text-xs tracking-[0.18em] text-blue-500">PIEDE SINISTRO — OK</div>
-                <div className="mt-4 text-center font-sans text-2xl font-semibold text-zinc-50">
-                  Piede Sinistro Acquisito!
-                </div>
-                <p className="mt-3 text-center text-sm leading-relaxed text-zinc-400">
-                  Ora posiziona il <strong className="text-zinc-100">Piede Destro</strong> sul foglio A4. Continua con le
-                  stesse 4 fasi.
-                </p>
+                <div className="mt-1 text-center font-sans text-2xl font-semibold text-zinc-50">Ora l'altro piede</div>
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => void resumeToRightFoot()}
                   className="mt-8 h-auto w-full rounded-xl border-blue-500/40 bg-blue-600 px-6 py-4 font-mono text-lg tracking-[0.14em] text-white shadow-lg shadow-blue-600/25 backdrop-blur-md hover:bg-blue-700 hover:border-blue-500/60"
                 >
-                  CONTINUA CON PIEDE DESTRO
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={resetTotal}
-                  className="mt-3 w-full text-xs text-zinc-500"
-                >
-                  Annulla sessione
+                  Continua
                 </Button>
               </div>
             </motion.div>
@@ -1540,57 +1517,25 @@ export default function ScannerCattura() {
 
         </AnimatePresence>
 
-        {(cameraState === "readyPhase" || cameraState === "capturingPhase") && phaseGuideAccepted && (
+        {(cameraState === "readyPhase" || cameraState === "capturingPhase") && (
           <motion.div
             key={`scan-bar-${phaseIndex}-${cameraState}`}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25, ease: "easeOut" }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
             className="absolute bottom-0 left-0 right-0 z-[55] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2"
           >
-            <div className="rounded-t-2xl border border-white/10 bg-black/70 px-4 pb-5 pt-4 shadow-xl backdrop-blur-[2px]">
-              <div className="text-center font-mono text-[10px] uppercase tracking-[0.22em] text-sky-400/95">
-                {overlayStep}
-              </div>
-              <div className="mt-3 flex items-center justify-center gap-4 font-mono text-[10px] tracking-wide text-zinc-400">
-                <span>
-                  Fase {phaseIndex + 1} / 4 · {currentFoot === "LEFT" ? "piede SX" : "piede DX"}
-                </span>
-              </div>
-              <div className="mt-4 flex flex-col items-center gap-3">
-                <div className="flex items-center justify-center gap-2">
-                  {progressTacks.map((filled, i) => (
-                    <div
-                      key={i}
-                      className={`h-2 w-8 rounded-sm border ${
-                        filled
-                          ? "border-sky-500 bg-sky-500 shadow-[0_0_12px_rgba(56,189,248,0.5)]"
-                          : "border-zinc-600/80 bg-black/30"
-                      }`}
-                    />
-                  ))}
-                </div>
-                <ScannerShutterButton
-                  progress={phaseIndex / 4}
-                  onClick={
-                    cameraState === "readyPhase" && captureReady ? beginPhaseBurstSequence : undefined
-                  }
-                  disabled={cameraState === "capturingPhase" || (cameraState === "readyPhase" && !captureReady)}
-                  capturing={cameraState === "capturingPhase"}
-                  label={
-                    cameraState === "capturingPhase"
-                      ? showAcquisitionComplete
-                        ? "Fatto"
-                        : burstCountdown != null
-                          ? "Tra poco…"
-                          : burstMidCapture
-                            ? "In corso…"
-                            : "Acquisizione…"
-                      : captureReady
-                        ? `Tocca · avvia fase ${phaseIndex + 1}`
-                        : "Allinea marker ArUco"
-                  }
-                />
+            <div className="mx-auto w-[min(56vw,200px)] rounded-full border border-white/10 bg-black/25 px-3 py-2 backdrop-blur-[1px]">
+              <div className="flex items-center justify-center gap-1.5">
+                {progressTacks.map((filled, i) => (
+                  <div
+                    key={i}
+                    className={cn(
+                      "h-1.5 w-7 rounded-full border transition-colors duration-200",
+                      filled ? "border-emerald-300/60 bg-emerald-300/70" : "border-white/20 bg-transparent"
+                    )}
+                  />
+                ))}
               </div>
             </div>
           </motion.div>
@@ -1720,16 +1665,19 @@ export default function ScannerCattura() {
                     return (
                       <div className="flex min-h-[200px] flex-col items-center justify-center gap-4 rounded-xl border border-zinc-800 bg-zinc-900/50 p-8 text-center">
                         <Loader2 className="h-10 w-10 animate-spin text-blue-500" aria-hidden />
-                        <div className="text-sm text-zinc-200">
-                          Generazione del modello 3D in corso… Attendi qualche istante.
-                        </div>
+                        <div className="text-sm text-zinc-200">Creazione modello…</div>
                       </div>
                     );
                   case "ready":
                     return (
                       <div className="relative">
                         {reconstructedCloud ? (
-                          <div className="h-[360px] w-full overflow-hidden rounded-xl border border-white/10 bg-black/20">
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.96, y: 10 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            transition={{ duration: 0.45, ease: "easeOut" }}
+                            className="h-[360px] w-full overflow-hidden rounded-xl border border-white/10 bg-black/20"
+                          >
                             <Canvas
                               dpr={[1, 1.75]}
                               frameloop="demand"
@@ -1749,7 +1697,7 @@ export default function ScannerCattura() {
                                 heatmapAxis="y"
                               />
                             </Canvas>
-                          </div>
+                          </motion.div>
                         ) : (
                           <FootCanvas
                             metrics={DEFAULT_METRICS}
@@ -1764,10 +1712,10 @@ export default function ScannerCattura() {
                             className="rounded-xl border border-white/15 bg-black/45 p-4 text-center backdrop-blur-md"
                           >
                             <div className="font-mono text-xs tracking-[0.16em] text-white/85">
-                              Il tuo piede digitale
+                              Questo e il tuo piede digitale
                             </div>
                             <div className="mt-2 text-xs text-zinc-200/95">
-                              Calzata personalizzata in creazione
+                              Ora creiamo la tua scarpa
                             </div>
                           </motion.div>
 

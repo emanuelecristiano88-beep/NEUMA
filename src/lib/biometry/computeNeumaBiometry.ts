@@ -8,7 +8,7 @@ import { mat3ToRowMajor } from "./homography";
 import { calibratePlaneFromMarkers } from "./planeCalibration";
 import type { NeumaBiometryExportPayload, NeumaBiometryResult, NeumaPlaneCalibration } from "./types";
 import { SHEET_H_MM, SHEET_W_MM } from "./sheetGeometry";
-import { buildFootBinaryMask } from "./footMask";
+import { buildFootBinaryMaskAi } from "./footMask";
 import { warpImageToCanonicalSheet } from "./warpSheet";
 
 function buildExportPayload(
@@ -67,6 +67,23 @@ function emptyResult(warnings: string[]): NeumaBiometryResult {
   };
 }
 
+function maskTouchesRectifiedBorder(mask: Uint8Array, w: number, h: number): boolean {
+  const border = Math.max(2, Math.floor(Math.min(w, h) * 0.01));
+  let hits = 0;
+  const minHits = Math.max(24, Math.floor(w * h * 0.0008));
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const onBorder = x < border || y < border || x >= w - border || y >= h - border;
+      if (!onBorder) continue;
+      if (mask[y * w + x]) {
+        hits += 1;
+        if (hits >= minHits) return true;
+      }
+    }
+  }
+  return false;
+}
+
 export type ComputeNeumaBiometryOptions = {
   /** Marker già rilevati (evita doppio detect) */
   markers?: ArucoMarkerDetection[];
@@ -93,8 +110,16 @@ export async function computeNeumaBiometryFromImageData(
   }
 
   const pxPerMm = options.pxPerMm ?? 4;
+  // OpenCV-like top-down rectification: homography + perspective warp.
   const canon = warpImageToCanonicalSheet(imageData, cal.homographyWorldMmToImagePx, pxPerMm);
-  const mask = buildFootBinaryMask(canon.imageData);
+  const mask = await buildFootBinaryMaskAi(canon.imageData);
+  if (maskTouchesRectifiedBorder(mask, canon.width, canon.height)) {
+    warnings.push("Piede parzialmente fuori dal foglio raddrizzato: rifare la scansione.");
+    const fail = emptyResult(warnings);
+    fail.calibration = { ...cal, warnings };
+    fail.exportPayload = buildExportPayload(cal, [], []);
+    return fail;
+  }
   const contourPx = boundaryPixels(mask, canon.width, canon.height);
 
   if (contourPx.length < 12) {
@@ -109,7 +134,7 @@ export async function computeNeumaBiometryFromImageData(
 
   const result: NeumaBiometryResult = {
     version: "1.0",
-    calibration: cal,
+    calibration: { ...cal, warnings },
     keypoints,
     footContourMm: contourMm,
     exportPayload: buildExportPayload(cal, keypoints, contourMm),

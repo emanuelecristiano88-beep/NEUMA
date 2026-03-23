@@ -171,13 +171,14 @@ function combineArucoAndHeuristic(
   const { count, aspectOk } = scoreA4FromMarkers(picked);
   const fourVisible = count >= 4;
   const threeVisible = markers.length >= 3;
+  const twoVisible = markers.length >= 2;
   const tooCloseAruco = markersDominateFrame(picked, W, H);
   const tooClose = h.guide === "too_close" || tooCloseAruco;
 
   const footInFrame = h.footInFrame;
-  const markersDetected = fourVisible || threeVisible;
+  const markersDetected = fourVisible || threeVisible || twoVisible;
   const aspectPass = fourVisible ? aspectOk : true;
-  const isPositionCorrect = (fourVisible || threeVisible) && aspectPass && footInFrame && !tooClose;
+  const isPositionCorrect = (fourVisible || threeVisible || twoVisible) && aspectPass && footInFrame && !tooClose;
 
   let guide: ScanGuideMode = "default";
   if (tooClose) guide = "too_close";
@@ -284,7 +285,7 @@ export function useScanAlignmentAnalysis(
       markerCount = markers.length;
       next = combineArucoAndHeuristic(imageData, markers, "ready");
       const picked = pickCornerMarkers(markers, w, h);
-      if (picked.length >= 3) {
+      if (picked.length >= 2) {
         markerCentersNorm = picked.slice(0, 4).map((m) => {
           const c = getMarkerCentroid(m);
           return { x: c.x / w, y: c.y / h };

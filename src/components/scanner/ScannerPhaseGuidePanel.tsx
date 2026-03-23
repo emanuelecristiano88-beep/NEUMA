@@ -38,7 +38,7 @@ export default function ScannerPhaseGuidePanel({ phaseId, foot, onContinue }: Sc
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <figure className="mx-auto max-w-md overflow-hidden rounded-xl border border-white/10 bg-zinc-900/80 shadow-lg shadow-black/40">
+        <figure className="mx-auto max-w-lg overflow-hidden rounded-xl border border-white/10 bg-zinc-900/80 shadow-lg shadow-black/40">
           <div className="relative bg-[#0a0a0f]">
             <span className="absolute left-2 top-2 z-[1] rounded-md bg-black/65 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white backdrop-blur-sm">
               {hasRaster ? "Foto di riferimento" : "Schema inquadratura"}
@@ -53,31 +53,23 @@ export default function ScannerPhaseGuidePanel({ phaseId, foot, onContinue }: Sc
           </figcaption>
         </figure>
 
-        <div className="mx-auto mt-4 max-w-md space-y-3 text-left text-sm leading-relaxed text-zinc-300">
-          <div>
-            <span className="text-xs font-bold uppercase tracking-wide text-zinc-500">Cliente</span>
-            <p className="mt-1.5">{copy.client}</p>
-          </div>
-          <div>
-            <span className="text-xs font-bold uppercase tracking-wide text-[#2563eb]">Operatore</span>
-            <p className="mt-1.5">{copy.operator}</p>
-          </div>
-          <p className={cn("rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-xs text-zinc-400")}>
-            Obiettivo acquisizione: {copy.hint}
+        <div className="mx-auto mt-3 max-w-lg space-y-2 text-left text-sm leading-relaxed text-zinc-300">
+          <p className={cn("rounded-lg border border-white/10 bg-black/35 px-3 py-2 text-xs text-zinc-400")}>
+            {copy.hint}
           </p>
         </div>
       </div>
 
       <div className="shrink-0 border-t border-white/10 bg-zinc-950 px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <p className="mb-3 text-center text-[11px] text-zinc-500">
-          Il rettangolo blu in camera seguirà l’inclinazione del telefono. Allinea il foglio A4 prima di avviare.
+          Guarda l'immagine e ripeti la stessa inquadratura.
         </p>
         <Button
           type="button"
           className="h-14 w-full rounded-xl bg-[#2563eb] text-base font-bold uppercase tracking-wide text-white shadow-lg hover:brightness-110"
           onClick={onContinue}
         >
-          Ho capito — inizia la fase
+          Inizia
         </Button>
       </div>
     </div>

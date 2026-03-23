@@ -287,7 +287,7 @@ export function ScanPhaseGuideIllustrationSvg({
       viewBox="0 0 360 400"
       className={cn(
         "h-auto w-full text-zinc-400",
-        variant === "panel" ? "max-h-[min(52vh,440px)]" : "max-h-[210px]",
+        variant === "panel" ? "max-h-[min(56vh,500px)]" : "max-h-[270px]",
         className
       )}
       role="img"
@@ -328,7 +328,7 @@ export default function ScanPhaseGuideIllustration({
       <div
         className={cn(
           "relative mx-auto w-full overflow-hidden rounded-[2rem] border border-zinc-600/80 bg-zinc-950 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]",
-          isCompact ? "max-h-[210px]" : "max-h-[min(52vh,440px)]",
+          isCompact ? "max-h-[270px]" : "max-h-[min(56vh,500px)]",
           className
         )}
       >
@@ -341,7 +341,7 @@ export default function ScanPhaseGuideIllustration({
           alt={ref.alt}
           className={cn(
             "mx-auto block w-full object-contain object-top px-1 pb-8 pt-6 sm:px-2",
-            isCompact ? "max-h-[176px]" : "max-h-[min(48vh,400px)]"
+            isCompact ? "max-h-[236px]" : "max-h-[min(52vh,460px)]"
           )}
           onError={() => setUseSvg(true)}
         />

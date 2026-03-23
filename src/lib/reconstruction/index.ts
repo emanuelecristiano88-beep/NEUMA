@@ -4,7 +4,7 @@ export {
 } from "./depthEstimation";
 export type { DepthBackend } from "./depthEstimation";
 
-export { extractFootMask } from "./segmentFoot";
+export { extractFootMask, extractFootMaskAi } from "./segmentFoot";
 export { depthMapToPointCloud } from "./depthToPointCloud";
 export { transformPointByPhase, phaseGroup } from "./phaseAlignment";
 export { mergePointCloudsVoxelAverage } from "./mergePointClouds";
