@@ -14,7 +14,7 @@ import {
   getRootFolderId,
 } from "./lib/googleDrive.js";
 
-export const config = { runtime: "nodejs", maxDuration: 120 };
+export const config = { runtime: "nodejs", maxDuration: 300 };
 const DRIVE_UPLOAD_CONCURRENCY = 4;
 
 function isJpegMagic(bytes: Uint8Array) {

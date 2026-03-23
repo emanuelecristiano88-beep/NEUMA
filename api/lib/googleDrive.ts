@@ -9,6 +9,19 @@ import { google } from "googleapis";
 
 const SCOPES = ["https://www.googleapis.com/auth/drive"];
 
+let cachedDrive: ReturnType<typeof google.drive> | null = null;
+let cachedAuth: google.auth.GoogleAuth | null = null;
+
+function getDriveClient() {
+  if (cachedDrive && cachedAuth) return cachedDrive;
+  cachedAuth = new google.auth.GoogleAuth({
+    credentials: getCredentials(),
+    scopes: SCOPES,
+  });
+  cachedDrive = google.drive({ version: "v3", auth: cachedAuth });
+  return cachedDrive;
+}
+
 function getCredentials(): Record<string, unknown> {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!raw) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON non configurato");
@@ -25,11 +38,7 @@ export function isDriveConfigured(): boolean {
 }
 
 export async function createDriveSubfolder(parentFolderId: string, name: string): Promise<{ id: string }> {
-  const auth = new google.auth.GoogleAuth({
-    credentials: getCredentials(),
-    scopes: SCOPES,
-  });
-  const drive = google.drive({ version: "v3", auth });
+  const drive = getDriveClient();
   const safeName = name.replace(/[/\\?%*:|"<>]/g, "-").slice(0, 200);
   const res = await drive.files.create({
     requestBody: {
@@ -50,11 +59,7 @@ export async function uploadBufferToDrive(params: {
   mimeType: string;
   parentFolderId: string;
 }): Promise<{ id: string; webViewLink?: string | null }> {
-  const auth = new google.auth.GoogleAuth({
-    credentials: getCredentials(),
-    scopes: SCOPES,
-  });
-  const drive = google.drive({ version: "v3", auth });
+  const drive = getDriveClient();
   const safeName = params.fileName.replace(/[/\\?%*:|"<>]/g, "-").slice(0, 200);
 
   const res = await drive.files.create({
@@ -66,10 +71,10 @@ export async function uploadBufferToDrive(params: {
       mimeType: params.mimeType,
       body: Readable.from(params.buffer),
     },
-    fields: "id, webViewLink",
+    fields: "id",
   });
 
-  return { id: res.data.id ?? "", webViewLink: res.data.webViewLink };
+  return { id: res.data.id ?? "", webViewLink: undefined };
 }
 
 export function getRootFolderId(): string {

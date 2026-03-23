@@ -188,6 +188,9 @@ function ProcessingView({
           ELABORAZIONE IN CORSO
         </div>
         <div className="mt-3 font-sans text-2xl text-zinc-100">Stiamo generando il tuo modello ...</div>
+        <div className="mt-2 text-sm text-zinc-200/95">
+          Può richiedere alcuni minuti. Non chiudere la pagina.
+        </div>
 
         <div className="mt-5 h-3 w-full overflow-hidden rounded-full border border-zinc-800 bg-zinc-950/80">
           <div
@@ -909,11 +912,20 @@ export default function ScannerCattura() {
 
       const serverScanId = data?.scanId ? String(data.scanId) : sessionScanId || "OK";
       const serverPath = typeof data?.path === "string" ? data.path : "";
+      const driveUploaded = data?.driveUploaded === true;
+      const driveFolderLink = typeof data?.driveFolderLink === "string" ? data.driveFolderLink : "";
+      const driveNote = typeof data?.scaleReferenceNote === "string" ? data.scaleReferenceNote : "";
+
+      // Strict cloud requirement: non proseguire se Drive non ha salvato davvero i file.
+      if (!driveUploaded) {
+        const hint = driveNote ? ` (${driveNote})` : "";
+        throw new Error(`Upload completato ma Drive non ha salvato i file${hint}.`);
+      }
 
       // allinea i badge tecnici all'ID server
       setScanId(serverScanId);
       setProcessingScanId(serverScanId);
-      setScanPath(serverPath);
+      setScanPath(driveFolderLink || serverPath);
       setError("");
 
       if (typeof sessionStorage !== "undefined") {
