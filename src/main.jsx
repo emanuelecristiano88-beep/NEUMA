@@ -13,6 +13,7 @@ import GuidaScansionePiedePage from './pages/GuidaScansionePiedePage'
 import BussolaPiedePage from './pages/BussolaPiedePage'
 import SuMisuraPage from './pages/SuMisuraPage'
 import ScannerOperatore from './components/ScannerOperatore'
+import ParametricFootModelPage from './pages/ParametricFootModelPage'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
@@ -27,6 +28,7 @@ createRoot(document.getElementById('root')).render(
           <Route path="/su-misura" element={<SuMisuraPage />} />
           <Route path="/scanner-operatore" element={<ScannerOperatore />} />
           <Route path="/admin/theme" element={<AdminThemePanel />} />
+          <Route path="/modello-piede" element={<ParametricFootModelPage />} />
           <Route path="*" element={<AppShell />} />
         </Routes>
       </BrowserRouter>

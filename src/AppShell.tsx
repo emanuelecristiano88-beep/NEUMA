@@ -7,6 +7,7 @@ import {
   Compass,
   FileText,
   Folder,
+  Footprints,
   Globe,
   Layers,
   Menu as MenuIcon,
@@ -157,6 +158,16 @@ function MenuScreen({ onOpenScanner }: { onOpenScanner: () => void }) {
             <Link to="/su-misura">
               <Sparkles className="h-4 w-4 shrink-0 text-blue-600" />
               Calzature su misura
+            </Link>
+          </Button>
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-2 border-neutral-300 bg-white text-zinc-900 hover:bg-neutral-50"
+            asChild
+          >
+            <Link to="/modello-piede">
+              <Footprints className="h-4 w-4 shrink-0 text-blue-600" />
+              Modello piede parametrico
             </Link>
           </Button>
         </div>
