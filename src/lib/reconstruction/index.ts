@@ -31,6 +31,8 @@ export {
   buildFootSurfaceFromPositions,
   laplacianSmoothGeometry,
   centerAndNormalizeFootMesh,
+  deformFootGeometry,
   DEFAULT_FOOT_SURFACE_OPTIONS,
+  DEFAULT_FOOT_DEFORM_OPTIONS,
 } from "./footSurfaceMesh";
-export type { FootSurfaceOptions } from "./footSurfaceMesh";
+export type { FootSurfaceOptions, FootDeformOptions } from "./footSurfaceMesh";

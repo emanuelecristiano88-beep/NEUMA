@@ -1,6 +1,6 @@
 /**
  * Superficie approssimata da nuvola punti: campo scalare su griglia (THREE.MarchingCubes)
- * + blur integrato + Laplaciano su mesh.
+ * + blur integrato + Laplaciano su mesh + deformazione parametrica.
  */
 
 import * as THREE from "three";
@@ -23,6 +23,28 @@ export type FootSurfaceOptions = {
   lambda: number;
   /** Max punti sorgente (sottocampionamento stride) */
   maxSourcePoints: number;
+};
+
+/**
+ * Opzioni di deformazione del modello base.
+ * Tutti i valori sono 0 = nessun effetto, 1 = effetto massimo.
+ */
+export type FootDeformOptions = {
+  /** Appiattimento plantare (Y- → simula piede piatto) */
+  archFlatten: number;
+  /** Allargamento dell'avampiede */
+  forefootSpread: number;
+  /** Allungamento longitudinale */
+  elongation: number;
+  /** Curvatura dorsale (dorsal camber) */
+  dorsalCamber: number;
+};
+
+export const DEFAULT_FOOT_DEFORM_OPTIONS: FootDeformOptions = {
+  archFlatten: 0,
+  forefootSpread: 0,
+  elongation: 0,
+  dorsalCamber: 0,
 };
 
 export const DEFAULT_FOOT_SURFACE_OPTIONS: FootSurfaceOptions = {
@@ -113,6 +135,90 @@ export function laplacianSmoothGeometry(
   merged.attributes.position.needsUpdate = true;
   merged.computeVertexNormals();
   return merged;
+}
+
+/**
+ * Applica deformazioni parametriche a una BufferGeometry centrata (output di centerAndNormalizeFootMesh).
+ * Tutti gli effetti sono additivi e scalati 0–1.
+ * La geometria viene modificata in-place; restituisce la stessa istanza.
+ */
+export function deformFootGeometry(
+  geometry: THREE.BufferGeometry,
+  options?: Partial<FootDeformOptions>
+): THREE.BufferGeometry {
+  const opt: FootDeformOptions = { ...DEFAULT_FOOT_DEFORM_OPTIONS, ...options };
+  const { archFlatten, forefootSpread, elongation, dorsalCamber } = opt;
+
+  if (archFlatten === 0 && forefootSpread === 0 && elongation === 0 && dorsalCamber === 0) {
+    return geometry;
+  }
+
+  const pos = geometry.attributes.position as THREE.BufferAttribute;
+  const arr = pos.array as Float32Array;
+  const count = pos.count;
+
+  // Bounding box in-memory (already normalized to ~[-0.5, 0.5] after centerAndNormalize).
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (let i = 0; i < count; i++) {
+    const x = arr[i * 3];
+    const z = arr[i * 3 + 2];
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
+  }
+  const rangeX = Math.max(maxX - minX, 1e-6);
+  const rangeZ = Math.max(maxZ - minZ, 1e-6);
+
+  for (let i = 0; i < count; i++) {
+    const base = i * 3;
+    let x = arr[base];
+    let y = arr[base + 1];
+    let z = arr[base + 2];
+
+    // tNorm ∈ [0,1]: 0 = tallone, 1 = avampiede
+    const tNorm = (z - minZ) / rangeZ;
+    // uNorm ∈ [0,1]: 0 = mediale, 1 = laterale
+    const uNorm = (x - minX) / rangeX;
+
+    // --- archFlatten: abbassa la volta plantare (y < 0) verso 0 ---
+    if (archFlatten !== 0) {
+      const archWeight = Math.sin(tNorm * Math.PI) * (1 - Math.abs(uNorm - 0.5) * 2) * archFlatten;
+      if (y < 0) {
+        y -= archWeight * Math.abs(y) * 0.8;
+      }
+    }
+
+    // --- forefootSpread: allarga lateralmente l'avampiede (t > 0.5) ---
+    if (forefootSpread !== 0) {
+      const foreWeight = Math.max(0, tNorm - 0.4) / 0.6;
+      const spreadFactor = 1 + forefootSpread * foreWeight * 0.35;
+      x = (x - (minX + maxX) / 2) * spreadFactor + (minX + maxX) / 2;
+    }
+
+    // --- elongation: allungamento asse Z (tallone-punta) ---
+    if (elongation !== 0) {
+      const centerZ = (minZ + maxZ) / 2;
+      z = centerZ + (z - centerZ) * (1 + elongation * 0.25);
+    }
+
+    // --- dorsalCamber: curva dorsale — alza il mesopiede in Y+ ---
+    if (dorsalCamber !== 0) {
+      const camberBump = Math.sin(tNorm * Math.PI) * dorsalCamber * 0.12;
+      y += camberBump;
+    }
+
+    arr[base] = x;
+    arr[base + 1] = y;
+    arr[base + 2] = z;
+  }
+
+  pos.needsUpdate = true;
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
 /**

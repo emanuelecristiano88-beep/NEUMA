@@ -11,6 +11,7 @@ import {
   Layers,
   Menu as MenuIcon,
   ScanLine,
+  Settings2,
   Sparkles,
   X,
 } from "lucide-react";
@@ -157,6 +158,16 @@ function MenuScreen({ onOpenScanner }: { onOpenScanner: () => void }) {
             <Link to="/su-misura">
               <Sparkles className="h-4 w-4 shrink-0 text-blue-600" />
               Calzature su misura
+            </Link>
+          </Button>
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-2 border-neutral-300 bg-white text-zinc-900 hover:bg-neutral-50"
+            asChild
+          >
+            <Link to="/parametri-modello">
+              <Settings2 className="h-4 w-4 shrink-0 text-blue-600" />
+              Parametri modello 3D
             </Link>
           </Button>
         </div>
