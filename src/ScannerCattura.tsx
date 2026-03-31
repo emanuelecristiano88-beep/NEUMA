@@ -3628,37 +3628,44 @@ export default function ScannerCattura() {
       {/* ── Floating instruction — real-time, Apple-style ── */}
       {scanOverlayEnabled ? (() => {
         // Compute a single instruction key + content in priority order.
-        type Pill = { key: string; text: string; icon?: "check" | null; color: "emerald" | "amber" | "rose" | "neutral" };
+        type PillColor = "cyan" | "emerald" | "amber" | "rose" | "neutral";
+        type Pill = { key: string; text: string; icon?: "check" | "rec" | null; color: PillColor };
         const pill: Pill = (() => {
           if (footScanCoverageComplete)
-            return { key: "done", text: "Perfetto!", icon: "check", color: "emerald" };
+            return { key: "done", text: "Ottimo — elaborazione in corso", icon: "check", color: "cyan" };
+          if (stabilityPct > 0 && !isVideoRecording)
+            return { key: "stable", text: "Tieni fermo, ci siamo quasi…", color: "cyan" };
+          if (isVideoRecording && captureReadiness === "green")
+            return { key: "rec_ok", text: "Continua a ruotare lentamente", icon: "rec", color: "cyan" };
           if (sheetDistanceWarning === "too_close")
-            return { key: "too_close", text: "Allontanati leggermente", color: "rose" };
+            return { key: "too_close", text: "Allontanati", color: "rose" };
           if (sheetDistanceWarning === "too_far")
             return { key: "too_far", text: "Avvicinati al foglio", color: "amber" };
           if (sheetDetectionState === "green" && footDetected && captureReadiness === "green")
-            return { key: "scan_ok", text: "Perfetto, ora ruota lentamente", color: "emerald" };
+            return { key: "scan_ok", text: "Perfetto — ruota piano", color: "emerald" };
           if (sheetDetectionState === "green" && footDetected)
             return { key: "scanning", text: "Gira lentamente intorno al piede", color: "neutral" };
           if (sheetDetectionState === "green" && !footDetected)
             return { key: "no_foot", text: "Posiziona il piede sul foglio", color: "neutral" };
           if (sheetDetectionState === "yellow")
-            return { key: "yellow", text: "Quasi a posto", color: "amber" };
+            return { key: "yellow", text: "Quasi a posto…", color: "amber" };
           return { key: "align", text: "Inquadra il foglio A4", color: "neutral" };
         })();
 
-        const borderColor = {
-          emerald: "border-emerald-400/22",
-          amber:   "border-amber-300/20",
-          rose:    "border-rose-400/20",
-          neutral: "border-white/[0.08]",
-        }[pill.color];
-        const textColor = {
+        const borderColor: Record<PillColor, string> = {
+          cyan:    "border-cyan-400/22",
+          emerald: "border-emerald-400/18",
+          amber:   "border-amber-300/18",
+          rose:    "border-rose-400/18",
+          neutral: "border-white/[0.07]",
+        };
+        const textColor: Record<PillColor, string> = {
+          cyan:    "text-cyan-100",
           emerald: "text-emerald-100",
           amber:   "text-amber-100/85",
           rose:    "text-rose-200/85",
-          neutral: "text-white/68",
-        }[pill.color];
+          neutral: "text-white/62",
+        };
 
         return (
           <div
@@ -3673,13 +3680,20 @@ export default function ScannerCattura() {
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.28, ease: "easeOut" }}
               >
-                <div className={`flex items-center gap-2 rounded-full border ${borderColor} bg-white/[0.03] px-4 py-2 backdrop-blur-2xl`}>
+                <div className={`flex items-center gap-2 rounded-full border ${borderColor[pill.color]} bg-white/[0.03] px-4 py-2 backdrop-blur-2xl`}>
                   {pill.icon === "check" && (
                     <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden>
-                      <path d="M1.5 7L5 10.5L11.5 3" stroke="#6ee7b7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M1.5 7L5 10.5L11.5 3" stroke="rgba(34,211,238,0.90)" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   )}
-                  <span className={`text-[13px] font-medium ${textColor}`}>{pill.text}</span>
+                  {pill.icon === "rec" && (
+                    <span
+                      className="h-1.5 w-1.5 rounded-full bg-cyan-400/80 flex-shrink-0"
+                      style={{ animation: "neumaOrbBeat 1.1s ease-in-out infinite" }}
+                      aria-hidden
+                    />
+                  )}
+                  <span className={`text-[13px] font-medium ${textColor[pill.color]}`}>{pill.text}</span>
                 </div>
               </motion.div>
             </AnimatePresence>
@@ -3802,27 +3816,31 @@ export default function ScannerCattura() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 8 }}
               transition={{ duration: 0.28, ease: "easeOut" }}
-              className="pointer-events-auto absolute inset-x-0 bottom-0 z-[90] flex justify-center px-5 pb-[max(2rem,env(safe-area-inset-bottom))]"
+              className="pointer-events-auto absolute inset-x-0 bottom-0 z-[90] flex justify-center px-5 pb-[max(2.2rem,env(safe-area-inset-bottom))]"
             >
-              <div className="w-full max-w-sm rounded-3xl border border-white/12 bg-black/55 px-5 py-6 text-center backdrop-blur-xl">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-400/80">
-                  Piede completato
+              {/* Entire card is tappable — no visible button */}
+              <button
+                type="button"
+                onClick={() => { void resumeToSecondFoot(); }}
+                className="w-full max-w-sm rounded-3xl border border-white/[0.07] bg-black/55 px-5 py-7 text-center backdrop-blur-2xl active:bg-black/70 transition-colors duration-150"
+              >
+                {/* Cyan check mark */}
+                <div className="mx-auto mb-3 flex h-9 w-9 items-center justify-center rounded-full border border-cyan-400/25 bg-cyan-400/[0.07]">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                    <path d="M2 8.5L6 12.5L14 4.5" stroke="rgba(34,211,238,0.85)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+                <p className="text-[11px] font-medium tracking-[0.18em] text-cyan-300/70 uppercase">
+                  Primo piede completato
                 </p>
-                <p className="mt-1.5 text-lg font-semibold tracking-tight text-white">
+                <p className="mt-1.5 text-[17px] font-semibold tracking-tight text-white">
                   Ora il piede {secondFootLabel.toLowerCase()}
                 </p>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => { void resumeToSecondFoot(); }}
-                  className="mt-5 w-full rounded-full border border-white/22 bg-white/12 py-5 text-sm font-semibold text-white hover:bg-white/18"
-                >
-                  Continua
-                </Button>
+                <p className="mt-3 text-[12px] text-white/28">Tocca per continuare</p>
                 {footSelectionWarning ? (
-                  <p className="mt-2 text-[12px] font-medium text-amber-200/80">{footSelectionWarning}</p>
+                  <p className="mt-2 text-[11px] font-medium text-amber-200/70">{footSelectionWarning}</p>
                 ) : null}
-              </div>
+              </button>
             </motion.div>
           )}
 
@@ -3848,39 +3866,50 @@ export default function ScannerCattura() {
           {cameraState === "idle" && (
             <motion.div
               key="choose-foot"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.28 }}
-              className="pointer-events-auto absolute inset-0 z-50 flex items-end justify-center px-5 pb-[max(2.5rem,env(safe-area-inset-bottom))]"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 6 }}
+              transition={{ duration: 0.38, ease: "easeOut" }}
+              className="pointer-events-auto absolute inset-x-0 bottom-0 z-50 flex justify-center px-6 pb-[max(2.8rem,env(safe-area-inset-bottom))]"
             >
-              <div className="w-full max-w-sm rounded-3xl border border-white/12 bg-black/50 px-5 py-6 text-center backdrop-blur-xl">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/38">
-                  Scansione piede
+              <div className="w-full max-w-sm">
+                {/* Heading */}
+                <p className="mb-4 text-center text-[11px] font-medium tracking-[0.22em] text-white/32 uppercase">
+                  Inizia con
                 </p>
-                <p className="mt-1.5 text-lg font-semibold tracking-tight text-white">
-                  Inizia con quale piede?
-                </p>
-                <div className="mt-5 flex gap-3">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => chooseFirstFootAndStart("LEFT")}
-                    className="flex-1 rounded-full border border-white/22 bg-white/12 py-5 text-sm font-semibold text-white hover:bg-white/18"
-                  >
-                    Sinistro
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => chooseFirstFootAndStart("RIGHT")}
-                    className="flex-1 rounded-full border border-white/22 bg-white/12 py-5 text-sm font-semibold text-white hover:bg-white/18"
-                  >
-                    Destro
-                  </Button>
+                {/* Two minimal ghost-tap tiles */}
+                <div className="flex gap-3">
+                  {(["LEFT", "RIGHT"] as const).map((side) => (
+                    <button
+                      key={side}
+                      type="button"
+                      onClick={() => chooseFirstFootAndStart(side)}
+                      className="group flex flex-1 flex-col items-center justify-center gap-2.5 rounded-[22px] border border-white/[0.07] bg-white/[0.03] py-7 backdrop-blur-2xl active:bg-white/[0.07] transition-colors duration-150"
+                    >
+                      {/* Ghost foot icon */}
+                      <svg width="28" height="44" viewBox="0 0 28 44" fill="none" aria-hidden
+                        style={{ transform: side === "RIGHT" ? "scaleX(-1)" : "none" }}>
+                        <path
+                          d="M14 41 C8 41 4 37 3 32 C2 28 3 22 5 17 C7 13 9 9 11 6 C12 4 13 3 14 3 C15 3 16 4 17 6 C19 9 21 13 23 17 C25 22 26 28 25 32 C24 37 20 41 14 41Z"
+                          stroke="rgba(255,255,255,0.35)"
+                          strokeWidth="1.2"
+                          strokeDasharray="3.5 2"
+                          fill="rgba(255,255,255,0.03)"
+                          strokeLinecap="round"
+                        />
+                        <ellipse cx="9" cy="5" rx="3" ry="4.5" stroke="rgba(255,255,255,0.28)" strokeWidth="1" strokeDasharray="2.5 1.5" fill="none" />
+                        <ellipse cx="13" cy="2.5" rx="2.5" ry="4" stroke="rgba(255,255,255,0.26)" strokeWidth="1" strokeDasharray="2.5 1.5" fill="none" />
+                        <ellipse cx="17" cy="2.5" rx="2.5" ry="4" stroke="rgba(255,255,255,0.24)" strokeWidth="1" strokeDasharray="2.5 1.5" fill="none" />
+                        <ellipse cx="21" cy="4" rx="2.5" ry="4" stroke="rgba(255,255,255,0.22)" strokeWidth="1" strokeDasharray="2.5 1.5" fill="none" />
+                      </svg>
+                      <span className="text-[11px] font-medium tracking-[0.18em] text-white/40 group-active:text-white/70 transition-colors uppercase">
+                        {side === "LEFT" ? "Sinistro" : "Destro"}
+                      </span>
+                    </button>
+                  ))}
                 </div>
                 {footSelectionWarning ? (
-                  <p className="mt-3 text-[12px] font-medium text-amber-200/80">{footSelectionWarning}</p>
+                  <p className="mt-3 text-center text-[11px] font-medium text-amber-200/70">{footSelectionWarning}</p>
                 ) : null}
               </div>
             </motion.div>
@@ -3930,55 +3959,85 @@ export default function ScannerCattura() {
           </div>
         )}
 
-        {/* uploading — Apple-style progress bar + label */}
+        {/* uploading — full-screen fade + centred spinner ring + progress */}
         {cameraState === "uploading" && (
-          <div className="pointer-events-none absolute inset-0 z-[75] flex items-end justify-center pb-[max(3.5rem,env(safe-area-inset-bottom))]">
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 8 }}
-              transition={{ duration: 0.35, ease: "easeOut" }}
-              className="w-[min(88vw,22rem)]"
-            >
-              <div className="rounded-3xl border border-white/10 bg-white/[0.03] px-5 py-5 backdrop-blur-2xl">
-                {/* Label row */}
-                <div className="flex items-center justify-between">
-                  <span className="text-[13px] font-medium text-white/75">
-                    {videoUploadProgress > 0 && videoUploadProgress < 100
-                      ? "Invio dati al MacBook Pro…"
-                      : videoUploadProgress >= 100
-                        ? "Elaborazione in corso…"
-                        : "Preparazione…"}
-                  </span>
-                  <span className="font-mono text-[11px] text-white/38">
-                    {videoUploadProgress > 0 ? `${videoUploadProgress}%` : ""}
-                  </span>
-                </div>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.45, ease: "easeOut" }}
+            className="pointer-events-none absolute inset-0 z-[75] flex flex-col items-center justify-center bg-black/78 backdrop-blur-sm"
+          >
+            {/* Spinning ring */}
+            <div className="relative mb-8 h-20 w-20">
+              {/* Track ring */}
+              <svg className="absolute inset-0" width="80" height="80" viewBox="0 0 80 80" fill="none" aria-hidden>
+                <circle cx="40" cy="40" r="34" stroke="rgba(255,255,255,0.08)" strokeWidth="2.5" />
+              </svg>
+              {/* Progress ring */}
+              <svg className="absolute inset-0 -rotate-90" width="80" height="80" viewBox="0 0 80 80" fill="none" aria-hidden>
+                <motion.circle
+                  cx="40" cy="40" r="34"
+                  stroke="url(#upGrad)"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  fill="none"
+                  strokeDasharray={`${2 * Math.PI * 34}`}
+                  animate={{
+                    strokeDashoffset: 2 * Math.PI * 34 * (1 - Math.max(0.04, videoUploadProgress / 100)),
+                  }}
+                  transition={{ ease: "easeOut", duration: 0.5 }}
+                />
+                <defs>
+                  <linearGradient id="upGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="rgba(52,211,153,0.90)" />
+                    <stop offset="100%" stopColor="rgba(34,211,238,0.90)" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              {/* Inner dot — pulses when uploading */}
+              <motion.div
+                className="absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-300/75"
+                animate={{ opacity: [0.4, 1, 0.4], scale: [0.85, 1.1, 0.85] }}
+                transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+              />
+            </div>
 
-                {/* Track */}
-                <div className="mt-3 h-[3px] w-full overflow-hidden rounded-full bg-white/10">
-                  <motion.div
-                    className="h-full rounded-full"
-                    style={{
-                      background: videoUploadProgress >= 100
-                        ? "rgba(52,211,153,0.85)"
-                        : "linear-gradient(90deg,rgba(52,211,153,0.80),rgba(34,211,238,0.80))",
-                    }}
-                    initial={{ width: "0%" }}
-                    animate={{ width: videoUploadProgress > 0 ? `${videoUploadProgress}%` : "4%" }}
-                    transition={{ ease: "easeOut", duration: 0.4 }}
-                  />
-                </div>
+            {/* Label */}
+            <AnimatePresence mode="wait">
+              <motion.p
+                key={videoUploadProgress >= 100 ? "done" : videoUploadProgress > 0 ? "sending" : "prep"}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.28 }}
+                className="text-[15px] font-semibold tracking-tight text-white/85"
+              >
+                {videoUploadProgress >= 100
+                  ? "Scansione ricevuta"
+                  : videoUploadProgress > 0
+                    ? "Invio dati al cloud…"
+                    : "Preparazione…"}
+              </motion.p>
+            </AnimatePresence>
 
-                {/* Sublabel */}
-                <p className="mt-2 text-[11px] text-white/32">
-                  {videoUploadProgress >= 100
-                    ? "Video ricevuto"
-                    : "Il video viene caricato nel cloud per l'analisi"}
-                </p>
-              </div>
-            </motion.div>
-          </div>
+            <p className="mt-2 text-[11px] text-white/30">
+              {videoUploadProgress >= 100
+                ? "Il modello verrà elaborato a breve"
+                : `${videoUploadProgress > 0 ? videoUploadProgress : 0}%`}
+            </p>
+
+            {/* Thin bottom track */}
+            <div className="mt-8 h-[2px] w-[min(72vw,18rem)] overflow-hidden rounded-full bg-white/10">
+              <motion.div
+                className="h-full rounded-full"
+                style={{ background: "linear-gradient(90deg,rgba(52,211,153,0.75),rgba(34,211,238,0.75))" }}
+                initial={{ width: "0%" }}
+                animate={{ width: videoUploadProgress > 0 ? `${videoUploadProgress}%` : "4%" }}
+                transition={{ ease: "easeOut", duration: 0.5 }}
+              />
+            </div>
+          </motion.div>
         )}
 
         {/* visualizer */}
