@@ -1,6 +1,7 @@
 "use client";
 
-import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import * as React from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "./components/ui/button";
 import { cn } from "./lib/utils";
@@ -31,6 +32,7 @@ import { sheetQuadCornersNormFromMarkerQuads } from "./lib/scanner/sheetQuadFrom
 import { estimateFootBBoxOverlapFractionOnPolygon } from "./lib/scanner/footOnSheetOverlap";
 import { discardCameraStreamHandoff, takeCameraStreamHandoff } from "./lib/cameraStreamHandoff";
 import { createNewScan, uploadVideoChunk as supabaseUploadChunk } from "./lib/scanService";
+import type { FootId, Metrics } from "./types/scan";
 
 // Lazy-load 3D stack (R3F/three) to avoid crashing the live camera path on Android.
 const FootPreview = lazy(() => import("./components/FootPreview"));
@@ -44,9 +46,6 @@ type Photo = {
   /** Fase di scansione (0–3) a cui appartiene il frame (burst nascosto) */
   phaseId: PhaseId;
 };
-
-type Metrics = { footLengthMm: number; forefootWidthMm: number };
-type FootId = "LEFT" | "RIGHT";
 
 async function buildFallbackFootPointCloudMm(metrics: Metrics): Promise<PointCloud> {
   const { buildSmoothFootPointCloudMm } = await import("./lib/visualization/neutralFootTemplate");
@@ -547,9 +546,6 @@ function ProcessingView({
 }
 
 export default function ScannerCattura() {
-  // Temporary "Android black camera" recovery mode:
-  // keep pipeline minimal until we confirm preview works reliably.
-  const SIMPLE_ANDROID_CAMERA_MODE = true;
   const BUILD_TAG = "native-cam-2026-03-31";
   const SHOW_DEBUG_OVERLAY = import.meta.env.DEV;
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -650,7 +646,6 @@ export default function ScannerCattura() {
   }, []);
 
   const preferredVideoDeviceIdRef = useRef<string | null>(null);
-  const [simpleVideoDevices, setSimpleVideoDevices] = useState<MediaDeviceInfo[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const videoStreamIdRef = useRef<string>(
     typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `vs_${Date.now()}`
@@ -682,7 +677,7 @@ export default function ScannerCattura() {
     }
   }, []);
   const NO_SCANNER_OVERLAYS = scannerUrlFlags.has("no-overlays");
-  const SHOW_SCANNER_STATE_BADGE = scannerUrlFlags.has("debug-camera") || SIMPLE_ANDROID_CAMERA_MODE;
+  const SHOW_SCANNER_STATE_BADGE = scannerUrlFlags.has("debug-camera");
   const [scannerStateBadge, setScannerStateBadge] = useState<string>("");
 
   useEffect(() => {
@@ -778,6 +773,12 @@ export default function ScannerCattura() {
     }),
     [pathZonesComplete]
   );
+
+  const scanMode = useMemo(() => getScanMode(), []);
+  const assistedMode = scanMode === "assistant";
+  const selfMode = scanMode === "solo";
+  const orbitBinsTarget = assistedMode ? 24 : SCAN_ORBIT_ANGLE_BINS;
+
   /** Fine piede: tutte le viste fase OPPURE giro completo (360° = tutti i settori). */
   const footScanCoverageComplete =
     (coverage.top && coverage.outer && coverage.inner && coverage.heel) ||
@@ -827,9 +828,9 @@ export default function ScannerCattura() {
     return () => window.clearInterval(iv);
   }, [cameraState, PROCESSING_MESSAGES]);
   const processingIntervalRef = useRef<number | null>(null);
-  const processingCompletionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const processingCompletionTimeoutRef = useRef<number | null>(null);
   /** Simulazione generazione mesh dopo "VISUALIZZA 3D" (futuro polling API) */
-  const meshGenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const meshGenTimeoutRef = useRef<number | null>(null);
   const [scanMeshViewerStatus, setScanMeshViewerStatus] = useState<ScanMeshViewerStatus>("idle");
   const [meshPreviewUrl, setMeshPreviewUrl] = useState<string | null>(null);
   const [reconstructedCloud, setReconstructedCloud] = useState<PointCloud | null>(null);
@@ -837,19 +838,14 @@ export default function ScannerCattura() {
   const [scanValidationReady, setScanValidationReady] = useState(false);
   const [previewTransitionActive, setPreviewTransitionActive] = useState(false);
   const [previewRevealReady, setPreviewRevealReady] = useState(false);
-  const previewTransitionTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const previewTransitionTimeoutsRef = useRef<number[]>([]);
 
-  const scanMode = useMemo(() => getScanMode(), []);
-  const assistedMode = scanMode === "assistant";
-  const selfMode = scanMode === "solo";
-
-  const orbitBinsTarget = assistedMode ? 24 : SCAN_ORBIT_ANGLE_BINS;
   const continuousCaptureIntervalMs = assistedMode ? 340 : 560;
   /** Dopo CAPTURE_FALLBACK_AFTER_MS senza burst: sblocca cattura e mostra “Perfetto” (con overlay verde). */
   const [captureFallbackArmed, setCaptureFallbackArmed] = useState(false);
-  const captureFallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const captureFallbackTimeoutRef = useRef<number | null>(null);
   const [greenDelayArmed, setGreenDelayArmed] = useState(false);
-  const greenDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const greenDelayTimerRef = useRef<number | null>(null);
 
   /** true se movimento camera sopra soglia per almeno CAMERA_MOTION_ACCUM_MS (no foto da fermo). */
   const [cameraMotionGateOk, setCameraMotionGateOk] = useState(false);
@@ -881,7 +877,7 @@ export default function ScannerCattura() {
   const footScanCoverageCompleteRef = useRef(false);
   const [footScanDoneVisible, setFootScanDoneVisible] = useState(false);
   const prevCameraStateRef = useRef(cameraState);
-  const reviewAutoUploadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reviewAutoUploadTimeoutRef = useRef<number | null>(null);
   const reviewAutoUploadArmedRef = useRef(false);
   useEffect(() => {
     currentFootRef.current = currentFoot;
@@ -1893,16 +1889,16 @@ export default function ScannerCattura() {
     setReconstructedMetrics(null);
     setPreviewRevealReady(false);
     setPreviewTransitionActive(true);
-    previewTransitionTimeoutsRef.current.forEach((t) => clearTimeout(t));
+    previewTransitionTimeoutsRef.current.forEach((t) => window.clearTimeout(t));
     previewTransitionTimeoutsRef.current = [];
 
     // Fade-out camera first, then cut to loading + 3D.
-    const t1 = setTimeout(() => {
+    const t1 = window.setTimeout(() => {
       stopStream();
       setCameraState("visualizing");
       setScanMeshViewerStatus("processing");
     }, 420);
-    const t2 = setTimeout(() => {
+    const t2 = window.setTimeout(() => {
       setPreviewRevealReady(true);
       setPreviewTransitionActive(false);
     }, 1400);
@@ -1950,10 +1946,10 @@ export default function ScannerCattura() {
         const mobile = perf.isMobileOrLowTier;
         // Scaling reale: stimiamo un fattore uniforme a partire da ArUco (px/mm) dei frame rappresentativi.
         // La pipeline "stabile" applica poi `metricScaleFactor` dopo cleaning/regularize.
-        const metricCandidates = [...reconLeft, ...reconRight].slice(0, 6);
+        const metricCandidates = [...pickedLeft, ...pickedRight].slice(0, 6);
         const pxPerMmSamples: number[] = [];
         for (const cand of metricCandidates) {
-          const v = await validateArucoOnPhoto(cand.blob).catch(() => ({ ok: false as const }));
+          const v = await validateArucoOnPhoto(cand).catch(() => ({ ok: false as const }));
           if (v.ok) {
             pxPerMmSamples.push(v.pixelsPerMm);
             if (pxPerMmSamples.length >= 3) break; // sufficiente per una stima stabile
@@ -2031,7 +2027,7 @@ export default function ScannerCattura() {
 
   useEffect(() => {
     return () => {
-      previewTransitionTimeoutsRef.current.forEach((t) => clearTimeout(t));
+      previewTransitionTimeoutsRef.current.forEach((t) => window.clearTimeout(t));
       previewTransitionTimeoutsRef.current = [];
     };
   }, []);
@@ -2168,17 +2164,6 @@ export default function ScannerCattura() {
   const acquireCameraStream = async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error("getUserMedia non disponibile. Usa HTTPS/localhost.");
-    }
-
-    // Vanilla bypass: completely decoupled from React render cycle.
-    // useNativeCamera does pure DOM manipulation — no setState triggers re-renders.
-    if (SIMPLE_ANDROID_CAMERA_MODE) {
-      nativeCamera.stop();
-      await nativeCamera.start();
-      // Sync streamRef so other parts of the scanner can access the stream if needed.
-      streamRef.current = nativeCamera.streamRef.current;
-      setHasLivePreview(!!nativeCamera.streamRef.current);
-      return;
     }
 
     const handed = takeCameraStreamHandoff();
@@ -2356,7 +2341,6 @@ export default function ScannerCattura() {
 
   // Watchdog: detect if video is actually playing frames.
   useEffect(() => {
-    if (SIMPLE_ANDROID_CAMERA_MODE) return;
     if (cameraState !== "readyPhase") {
       setHasLivePreview(false);
       livePreviewLastTimeRef.current = 0;
@@ -2412,7 +2396,6 @@ export default function ScannerCattura() {
       window.clearInterval(id);
       if (rvfc && rvfcHandle) {
         try {
-          // @ts-expect-error non standard cancel
           (videoRef.current as any)?.cancelVideoFrameCallback?.(rvfcHandle);
         } catch {
           /* ignore */
@@ -2424,7 +2407,7 @@ export default function ScannerCattura() {
   // Diagnostics + frame probe when preview is black/frozen (Android-friendly).
   useEffect(() => {
     if (cameraState !== "readyPhase") return;
-    if (!SIMPLE_ANDROID_CAMERA_MODE && hasLivePreview) return;
+    if (hasLivePreview) return;
     let cancelled = false;
     const canvas = (cameraProbeCanvasRef.current ??= document.createElement("canvas"));
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -2480,34 +2463,18 @@ export default function ScannerCattura() {
     return () => {
       cancelled = true;
     };
-  }, [cameraState, hasLivePreview, SIMPLE_ANDROID_CAMERA_MODE]);
+  }, [cameraState, hasLivePreview]);
 
-  // Auto-start: open camera as soon as scanner mounts.
+  // Auto-start: advance state to readyPhase so the scanning UI appears.
+  // Camera stream is already started by the mount effect — do NOT touch it here.
   useEffect(() => {
     if (cameraState !== "idle") return;
     if (autoStartOnceRef.current) return;
-
-    let isCancelled = false;
     autoStartOnceRef.current = true;
 
-    const boot = async () => {
-      const startFoot = firstFootSelectionRef.current ?? "LEFT";
-      try {
-        await startCamera(startFoot);
-      } catch {
-        // startCamera handles its own errors
-      }
-      if (isCancelled && streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
-    };
-
-    void boot();
-
-    return () => {
-      isCancelled = true;
-    };
+    const startFoot = firstFootSelectionRef.current ?? "LEFT";
+    // Fire-and-forget: only updates React state, never acquires/stops a stream.
+    void startCamera(startFoot);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraState]);
 
@@ -2517,25 +2484,6 @@ export default function ScannerCattura() {
     stopStream();
     autoStartOnceRef.current = false;
     void restartCamera();
-  };
-
-  const cycleSimpleCameraFromUserTap = () => {
-    if (!SIMPLE_ANDROID_CAMERA_MODE) return;
-    const list = simpleVideoDevices;
-    if (!list.length) {
-      // next retry will repopulate the list
-      preferredVideoDeviceIdRef.current = null;
-      retryCameraFromUserTap();
-      return;
-    }
-    const currentId =
-      preferredVideoDeviceIdRef.current ??
-      streamRef.current?.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId ??
-      null;
-    const idx = currentId ? list.findIndex((d) => d.deviceId === currentId) : -1;
-    const next = list[(idx + 1 + list.length) % list.length];
-    preferredVideoDeviceIdRef.current = next?.deviceId ?? null;
-    retryCameraFromUserTap();
   };
 
   const forceOpenCameraFromGesture = useCallback(
@@ -2868,7 +2816,6 @@ export default function ScannerCattura() {
     setGreenDelayArmed(false);
     setBiometryResult(null);
     setBiometryBusy(false);
-    setAcceptTerms(false);
     if (meshGenTimeoutRef.current) {
       clearTimeout(meshGenTimeoutRef.current);
       meshGenTimeoutRef.current = null;
@@ -3203,49 +3150,8 @@ export default function ScannerCattura() {
         </div>
       ) : null}
 
-      {SIMPLE_ANDROID_CAMERA_MODE && cameraState === "readyPhase" ? (
-        <div className="pointer-events-auto absolute left-3 top-14 z-[95] w-[min(92vw,20rem)] sm:left-4 sm:top-16">
-          <div className="rounded-2xl border border-white/10 bg-black/45 p-3 text-left">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/60">
-                  Camera debug
-                </div>
-                <div className="mt-1 truncate font-mono text-[11px] text-white/70">build {BUILD_TAG}</div>
-              </div>
-              <div className="flex shrink-0 gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={retryCameraFromUserTap}
-                  className="h-9 rounded-full border-white/15 bg-white/[0.04] px-3 text-[12px] font-semibold text-white/85 hover:bg-white/[0.07]"
-                >
-                  Riavvia
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={cycleSimpleCameraFromUserTap}
-                  className="h-9 rounded-full border border-white/20 bg-white/12 px-3 text-[12px] font-semibold text-white hover:bg-white/18"
-                >
-                  Cambia
-                </Button>
-              </div>
-            </div>
-            <div className="mt-2 rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-[11px] text-white/70">
-              <pre className="whitespace-pre-wrap break-words font-mono">{cameraOverlayDiagnostics || "…"}</pre>
-            </div>
-            {simpleVideoDevices.length ? (
-              <div className="mt-2 text-[11px] text-white/55">
-                {simpleVideoDevices.length} camere rilevate
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
       {/* Black camera fallback: force a user gesture */}
-      {!NO_SCANNER_OVERLAYS && !SIMPLE_ANDROID_CAMERA_MODE && cameraState === "readyPhase" && !hasLivePreview ? (
+      {!NO_SCANNER_OVERLAYS && cameraState === "readyPhase" && !hasLivePreview ? (
         <div className="pointer-events-auto absolute inset-0 z-[92] flex items-center justify-center px-6">
           <div className="w-full max-w-md rounded-2xl border border-white/12 bg-black/45 p-6 text-center backdrop-blur-md">
             <div className="neuma-title text-xl font-semibold tracking-tight text-white">

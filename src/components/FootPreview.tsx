@@ -4,7 +4,6 @@ import { ContactShadows, Environment } from "@react-three/drei";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader";
 import * as THREE from "three";
-
 type Props = {
   length: number;
   width: number;
@@ -201,7 +200,7 @@ export default function FootPreview({ length, width, height }: Props) {
             toneMapping: THREE.ACESFilmicToneMapping,
             toneMappingExposure: 1.05,
           }}
-          dpr={[1, 1.75]}
+          dpr={[1, 1.5]}
           camera={{ fov: 38, near: 0.1, far: 2000, position: [0.18, 0.14, 0.19] }}
           style={{ background: "#000" }}
         >

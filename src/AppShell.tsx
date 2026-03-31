@@ -1,6 +1,7 @@
 "use client";
 
-import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import * as React from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Book,
@@ -15,13 +16,11 @@ import {
   X,
 } from "lucide-react";
 
-const ScannerCattura = lazy(() => import("./ScannerCattura"));
 import LibraryScreen from "./screens/LibraryScreen";
 import NeumaOnboarding from "./components/NeumaOnboarding";
 import { Button } from "./components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./components/ui/dialog";
 import { cn } from "./lib/utils";
-import { discardCameraStreamHandoff, setCameraStreamHandoff } from "./lib/cameraStreamHandoff";
 import NeumaLogo from "./components/NeumaLogo";
 import LandingPage from "./pages/LandingPage";
 import ScanModeSelectScreen, { type ScanMode } from "./components/ScanModeSelectScreen";
@@ -178,12 +177,10 @@ export default function AppShell() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<TabId>("library");
   const [onboardingOpen, setOnboardingOpen] = useState(false);
-  const [scannerOpen, setScannerOpen] = useState(false);
   const [scanModeOpen, setScanModeOpen] = useState(false);
   const [scanMode, setScanMode] = useState<ScanMode | null>(null);
   const [scanSlidesOpen, setScanSlidesOpen] = useState(false);
   const orientationLockAttemptedRef = useRef(false);
-  const [blockScannerLandscape, setBlockScannerLandscape] = useState(false);
 
   useEffect(() => {
     const tryLockPortrait = () => {
@@ -191,8 +188,8 @@ export default function AppShell() {
       orientationLockAttemptedRef.current = true;
 
       try {
-        const maybeScreen: { orientation?: { lock?: (o: OrientationLockType) => Promise<void> } } | null =
-          typeof window !== "undefined" ? window.screen : null;
+        const maybeScreen: { orientation?: { lock?: (o: string) => Promise<void> } } | null =
+          typeof window !== "undefined" ? (window.screen as unknown as { orientation?: { lock?: (o: string) => Promise<void> } }) : null;
         const orient = maybeScreen?.orientation;
         const lockFn = orient?.lock;
         if (typeof lockFn === "function") {
@@ -217,38 +214,6 @@ export default function AppShell() {
   }, []);
 
   useEffect(() => {
-    if (!scannerOpen) {
-      setBlockScannerLandscape(false);
-      return;
-    }
-    const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
-    if (!isTouchDevice) return;
-
-    const check = () => {
-      const isLandscape = window.innerWidth > window.innerHeight;
-      setBlockScannerLandscape(isLandscape);
-    };
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, [scannerOpen]);
-
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ scanId?: string }>).detail;
-      setScannerOpen(false);
-      discardCameraStreamHandoff();
-      if (detail?.scanId) {
-        navigate("/su-misura", { state: { scanId: detail.scanId } });
-      } else {
-        navigate("/su-misura");
-      }
-    };
-    window.addEventListener("neuma:scan-proceed", handler);
-    return () => window.removeEventListener("neuma:scan-proceed", handler);
-  }, [navigate]);
-
-  useEffect(() => {
     const st = location.state as { autoStartScan?: boolean } | null | undefined;
     if (st?.autoStartScan) {
       setOnboardingOpen(true);
@@ -268,8 +233,7 @@ export default function AppShell() {
 
   const finishSlidesAndStartScan = () => {
     setScanSlidesOpen(false);
-    discardCameraStreamHandoff();
-    setScannerOpen(true);
+    navigate("/scanner");
   };
 
   const isLandingRoute = location.pathname === "/";
@@ -339,44 +303,6 @@ export default function AppShell() {
         </DialogContent>
       </Dialog>
 
-      {/* Scanner: NO Radix Dialog — plain fullscreen div to avoid portal/animation/compositor issues on Android.
-          IMPORTANT: NO overflow-hidden on this wrapper — it clips fixed-positioned video on Android Chrome. */}
-      {scannerOpen ? (
-        <div className="fixed inset-0 z-[100] h-[100dvh] w-[100vw] bg-black">
-          <div className="pointer-events-none absolute left-0 right-0 top-0 z-[110] flex justify-end p-3">
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon"
-              className="pointer-events-auto h-11 w-11 rounded-full border border-white/10 bg-zinc-900/80 text-white shadow-lg hover:bg-zinc-800"
-              onClick={() => {
-                setScannerOpen(false);
-                discardCameraStreamHandoff();
-              }}
-              aria-label="Chiudi scanner"
-            >
-              <X className="h-6 w-6" strokeWidth={2} />
-            </Button>
-          </div>
-          <div className="relative h-full w-full">
-            <Suspense fallback={<div className="flex h-full w-full items-center justify-center bg-black"><div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white/70" /></div>}>
-              <ScannerCattura />
-            </Suspense>
-            {blockScannerLandscape ? (
-              <div className="pointer-events-none absolute inset-0 z-[120] flex items-center justify-center bg-black/25 px-6">
-                <div className="text-center">
-                  <div className="text-lg font-semibold tracking-tight text-white sm:text-xl">
-                    Ruota il telefono in verticale
-                  </div>
-                  <div className="mt-2 text-sm text-white/70">
-                    La fotocamera si avvia comunque: in verticale vedrai l'inquadratura completa.
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

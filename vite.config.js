@@ -161,9 +161,19 @@ export default defineConfig({
     reportCompressedSize: false,
     chunkSizeWarningLimit: 1600,
     rollupOptions: {
-      // NO manualChunks: custom chunks cause circular chunk dependencies with lazy()
-      // which produce "Cannot access '...' before initialization" (TDZ) on Android Chrome.
-      // Vite's automatic splitting handles lazy() boundaries correctly without cycles.
+      output: {
+        manualChunks(id) {
+          // Force shared libs that BOTH ScannerCattura (eager) and lazy 3D/recon
+          // chunks use into their own chunk, breaking the circular dependency
+          // that causes TDZ ("Cannot access before initialization").
+          if (id.includes('/lib/utils/yieldToMain'))  return 'shared-utils';
+          if (id.includes('/lib/biometry/'))           return 'shared-biometry';
+          if (id.includes('/lib/reconstruction/') && !id.includes('footSurfaceMesh')) return 'shared-recon';
+          if (id.includes('/lib/aruco/'))              return 'shared-aruco';
+          if (id.includes('/lib/scanner/'))            return 'shared-scanner-lib';
+          if (id.includes('/constants/'))              return 'shared-constants';
+        },
+      },
     },
   },
 })

@@ -17,9 +17,10 @@ import { PAIR_STORAGE_KEY } from "../constants/scan";
 import BiometricAnalysisPanel from "../components/BiometricAnalysisPanel";
 import ScanFootprint2D from "../components/ScanFootprint2D";
 import { useScanMetrics } from "../hooks/useScanMetrics";
-import VirtualTryOnViewer from "../components/VirtualTryOnViewer";
 import { SHOE_CATALOG, type ShoeCatalogItem } from "../data/shoeCatalog";
 
+// Lazy-load all Three.js-dependent viewers so they never pollute the AppShell chunk.
+const VirtualTryOnViewer = lazy(() => import("../components/VirtualTryOnViewer"));
 const DigitalFittingViewer = lazy(() => import("../../components/three/DigitalFittingViewer"));
 
 const FITTING_STATIC = {
@@ -490,15 +491,17 @@ export default function LibraryScreen({ onOpenScanner }: LibraryScreenProps) {
         </DialogContent>
       </Dialog>
 
-      <VirtualTryOnViewer
-        open={arViewerOpen}
-        shoe={arSelectedShoe}
-        onOpenChange={(next) => {
-          setArViewerOpen(next);
-          if (!next) setArSelectedShoe(null);
-        }}
-        onScanFoot={onOpenScanner}
-      />
+      <Suspense fallback={null}>
+        <VirtualTryOnViewer
+          open={arViewerOpen}
+          shoe={arSelectedShoe}
+          onOpenChange={(next) => {
+            setArViewerOpen(next);
+            if (!next) setArSelectedShoe(null);
+          }}
+          onScanFoot={onOpenScanner}
+        />
+      </Suspense>
 
       <AnimatePresence>
         {viewerOpen && showSuccessFx ? (

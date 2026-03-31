@@ -141,6 +141,7 @@ export default function App() {
   };
 
   const startCamera = async () => {
+    console.log("PROVA_AVVIO_CAMERA");
     setError("");
     setVideoReady(false);
     if (videoReadyCheckIntervalRef.current) {
@@ -453,28 +454,28 @@ export default function App() {
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-zinc-950 text-white">
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
-          cameraActive && videoReady ? "opacity-100" : "opacity-0"
-        }`}
-      />
+      {/* Fallback: always behind video (z-0) */}
+      <div className="absolute inset-0 h-full w-full bg-zinc-200" style={{ zIndex: 0 }} />
       {(!cameraActive || !videoReady) && (
-        <div className="absolute inset-0 h-full w-full bg-zinc-200" />
+        <div className="pointer-events-none absolute inset-0 opacity-60 [background-image:linear-gradient(to_right,rgba(132,204,22,0.35)_1px,transparent_1px),linear-gradient(to_bottom,rgba(132,204,22,0.25)_1px,transparent_1px)] [background-size:34px_34px]" style={{ zIndex: 0 }} />
       )}
       {(!cameraActive || !videoReady) && (
-        <div className="pointer-events-none absolute inset-0 opacity-60 [background-image:linear-gradient(to_right,rgba(132,204,22,0.35)_1px,transparent_1px),linear-gradient(to_bottom,rgba(132,204,22,0.25)_1px,transparent_1px)] [background-size:34px_34px]" />
-      )}
-      {(!cameraActive || !videoReady) && (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center" style={{ zIndex: 0 }}>
           <div className="rounded border border-lime-600 bg-white/90 px-4 py-2 font-mono text-xs tracking-[0.12em] text-zinc-900">
             ANTEPRIMA VIDEO NON DISPONIBILE
           </div>
         </div>
       )}
+
+      {/* Video: always in DOM, always visible, never opacity-0 */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className="absolute inset-0 h-full w-full object-cover"
+        style={{ zIndex: 1 }}
+      />
 
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-lime-300/5 via-transparent to-lime-300/5" />
       {cameraActive && videoReady && (
