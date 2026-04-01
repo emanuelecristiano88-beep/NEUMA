@@ -4250,10 +4250,13 @@ export default function ScannerCattura() {
         <canvas ref={debugCanvasRef} className="pointer-events-none absolute inset-0 z-[19]" aria-hidden />
       ) : null}
 
-      {/* Foot Eraser: hemisphere dots projected on video + eraser ring at centre */}
+      {/* Foot Eraser: hemisphere dots projected via ArUco pose (cv.projectPoints) */}
       <FootEraserCanvas
         eraser={eraser}
         tiltRef={frameTiltRef}
+        markerQuads={openCvAruco.snapshot.quadsNorm}
+        videoRef={videoRef}
+        containerRef={videoContainerRef}
         visible={STARLINK_DOT_CLOUD_MODE && cameraState === "readyPhase" && !eraser.isComplete}
       />
 

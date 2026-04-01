@@ -59,8 +59,18 @@ export interface TickResult {
 export interface FootEraserState {
   /** React state: all remaining (not yet done) points with current status. */
   remainingPoints: EraserPoint[];
-  /** Call from a RAF loop each frame. */
+  /**
+   * Tilt-based tick: use when ArUco tracking is unavailable.
+   * Projects via device orientation and erases dots near screen centre.
+   */
   tick: (tilt: ScanFrameTilt, screenW: number, screenH: number) => TickResult;
+  /**
+   * ArUco-based consume: called by FootEraserCanvas after cv.projectPoints
+   * projection detects which dots fall inside the eraser zones.
+   * @param doneIds     IDs to mark 'done' and remove from remainingPoints.
+   * @param scanningIds (optional) IDs currently in the outer scanning ring.
+   */
+  consume: (doneIds: number[], scanningIds?: number[]) => void;
   /** 0–100 integer percentage. */
   progress: number;
   isComplete: boolean;
@@ -295,6 +305,46 @@ export function useFootEraser(enabled: boolean): FootEraserState {
     [enabled],
   );
 
+  /**
+   * consume() — called by FootEraserCanvas when ArUco-based projectPoints
+   * has already determined which dome points fall inside the eraser zones.
+   * Bypasses the tilt-based tick() projection entirely.
+   */
+  const consume = useCallback(
+    (doneIds: number[], scanningIds: number[] = []) => {
+      if (doneIds.length === 0 && scanningIds.length === 0) return;
+
+      // Filter out IDs already consumed to avoid duplicate haptics
+      const newlyDone = doneIds.filter((id) => !consumedRef.current.has(id));
+      if (newlyDone.length > 0) {
+        for (const id of newlyDone) consumedRef.current.add(id);
+        try { window.navigator.vibrate?.(10); } catch { /* ignore */ }
+      }
+
+      const scanSet = new Set(scanningIds);
+      const scanChanged =
+        scanSet.size !== prevScanRef.current.size ||
+        [...scanSet].some((id) => !prevScanRef.current.has(id));
+
+      if (newlyDone.length > 0 || scanChanged) {
+        prevScanRef.current = scanSet;
+        setRemainingPoints((prev) => {
+          const next = prev
+            .filter((p) => !consumedRef.current.has(p.id))
+            .map((p) => ({
+              ...p,
+              status: scanSet.has(p.id)
+                ? ("scanning" as DomePointStatus)
+                : ("idle" as DomePointStatus),
+            }));
+          pointsRef.current = next;
+          return next;
+        });
+      }
+    },
+    [],
+  );
+
   const reset = useCallback(() => {
     const pts = generateGoldenSpiralDome(DEFAULT_COUNT, DEFAULT_RADIUS_M);
     pointsRef.current   = pts;
@@ -307,5 +357,5 @@ export function useFootEraser(enabled: boolean): FootEraserState {
     if (!enabled) reset();
   }, [enabled, reset]);
 
-  return { remainingPoints, tick, progress, isComplete, totalConsumed, reset };
+  return { remainingPoints, tick, consume, progress, isComplete, totalConsumed, reset };
 }
