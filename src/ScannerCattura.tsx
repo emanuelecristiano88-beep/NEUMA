@@ -17,7 +17,6 @@ import ArucoMarkerPins from "./components/scanner/ArucoMarkerPins";
 import ArucoMarkerBracketsCanvas from "./components/scanner/ArucoMarkerBracketsCanvas";
 import ScannerSheetOverlayCanvas from "./components/scanner/ScannerSheetOverlayCanvas";
 import { computeNeumaBiometryFromImageData, type NeumaBiometryResult } from "./lib/biometry";
-import { loadOpenCv, isOpenCvReady } from "./lib/opencv/loadOpenCv";
 import { pickCornerMarkers, type ArucoMarkerDetection, type ArucoMarkerPoint } from "./lib/aruco/a4MarkerGeometry";
 import { markerSharpnessScore } from "./lib/scanner/frameQuality";
 // Types only — no runtime Three.js dependency.
@@ -588,11 +587,7 @@ export default function ScannerCattura() {
   const [hudSizePx, setHudSizePx] = useState(150);
   const [openCvStatus, setOpenCvStatus] = useState<"loading" | "ready" | "error">("loading");
   const [openCvError, setOpenCvError] = useState<string | null>(null);
-  const [showForceRefresh, setShowForceRefresh] = useState(false);
   const openCvBootStartedAtRef = useRef<number>(0);
-  const [openCvFetchDiag, setOpenCvFetchDiag] = useState<string | null>(null);
-  const openCvWasmBinaryRef = useRef<Uint8Array | null>(null);
-  const openCvWasmObjectUrlRef = useRef<string | null>(null);
 
   // Freeze layout to full viewport.
   useEffect(() => {
@@ -612,234 +607,31 @@ export default function ScannerCattura() {
     };
   }, []);
 
-  // Load OpenCV.js (with ArUco) early; block scanner start until ready.
+  // Old-school polling: OpenCV must be loaded at site start (index.html).
   useEffect(() => {
-    let cancelled = false;
-    if (isOpenCvReady()) {
-      setOpenCvStatus("ready");
-      setOpenCvError(null);
-      setOpenCvFetchDiag(null);
-      return;
-    }
+    openCvBootStartedAtRef.current = performance.now();
     setOpenCvStatus("loading");
     setOpenCvError(null);
-    setOpenCvFetchDiag(null);
-    setShowForceRefresh(false);
-    openCvBootStartedAtRef.current = performance.now();
-
-    const preloadAndLoad = async () => {
-      // Manual preload (Emscripten assertion fix): fetch WASM ourselves and inject into Module.wasmBinary.
-      const tryUrls = ["/lib/opencv.wasm", "/lib/opencv_js.wasm"];
-      let lastErr: string | null = null;
-      for (const u of tryUrls) {
-        try {
-          const res = await fetch(u, { cache: "no-store" });
-          if (!res.ok) throw new Error(`fetch ${res.status}`);
-          const ct = (res.headers.get("content-type") || "").toLowerCase();
-          if (ct.includes("text/html")) {
-            throw new Error(`content-type=${ct || "-"} (server returned HTML, not wasm)`);
-          }
-          if (!(ct.includes("application/wasm") || ct.includes("application/octet-stream") || ct.includes("binary/octet-stream"))) {
-            // Non blocchiamo su alcuni CDN/proxy strani, ma lo segnaliamo in debug.
-            setOpenCvFetchDiag((p) => (p ? `${p}\nWASM warning: ${u} content-type=${ct || "-"}` : `WASM warning: ${u} content-type=${ct || "-"}`));
-          }
-
-          // Use Blob → object URL for locateFile (MIME/path bypass), and also keep wasmBinary bytes as fallback.
-          const blob = await res.blob();
-          try {
-            if (openCvWasmObjectUrlRef.current) URL.revokeObjectURL(openCvWasmObjectUrlRef.current);
-          } catch {}
-          openCvWasmObjectUrlRef.current = URL.createObjectURL(blob);
-
-          const buf = await blob.arrayBuffer();
-          const bytes = new Uint8Array(buf);
-          openCvWasmBinaryRef.current = bytes;
-          const prev = (window as any).Module;
-          (window as any).Module = {
-            ...(typeof prev === "object" && prev ? prev : {}),
-            wasmBinary: bytes,
-          };
-          lastErr = null;
-          break;
-        } catch (e) {
-          lastErr = `${u}: ${e instanceof Error ? e.message : String(e)}`;
-        }
+    const id = window.setInterval(() => {
+      const cv = (window as any).cv;
+      const readyFlag = !!(window as any).cvReady;
+      if (cv && readyFlag && typeof cv.Mat === "function") {
+        setOpenCvStatus("ready");
+        setOpenCvError(null);
+        window.clearInterval(id);
       }
-
-      // Always define Emscripten hooks BEFORE loading opencv.js.
-      try {
-        const prev = (window as any).Module;
-        const wasmUrl = openCvWasmObjectUrlRef.current;
-        (window as any).Module = {
-          ...(typeof prev === "object" && prev ? prev : {}),
-          locateFile: (path: string) => {
-            // If we have a blob URL, prefer it for any wasm filename.
-            if (wasmUrl && (path.endsWith(".wasm") || path.includes("opencv"))) return wasmUrl;
-            return `/lib/${path}`;
-          },
-          onRuntimeInitialized: () => {
-            console.log("OpenCV con WASM precaricato: READY!");
-          },
-        };
-      } catch {}
-
-      if (lastErr) {
-        // Non blocchiamo: alcuni build riescono comunque via locateFile.
-        setOpenCvFetchDiag((p) => (p ? `${p}\nWASM preload failed: ${lastErr}` : `WASM preload failed: ${lastErr}`));
-      }
-
-      await loadOpenCv({ timeoutMs: 20_000 });
-    };
-
-    preloadAndLoad()
-      .then(() => {
-        if (cancelled) return;
-        // Verify aruco contrib module exists.
-        const cv = (window as any).cv;
-        if (cv?.aruco) {
-          if (!cv?.aruco?.getPredefinedDictionary || !cv?.aruco?.detectMarkers) {
-            setOpenCvStatus("error");
-            setOpenCvError("Build OpenCV incompleto: cv.aruco presente ma API ArUco non esposta.");
-            // eslint-disable-next-line no-alert
-            alert("Build OpenCV incompleto, manca ArUco");
-            return;
-          }
-          setOpenCvStatus("ready");
-          setOpenCvError(null);
-          return;
-        } else {
-          setOpenCvStatus("error");
-          setOpenCvError("OPENCV_READY_NO_ARUCO: modulo ArUco assente in questo build.");
-          return;
-        }
-      })
-      .catch((e) => {
-        if (cancelled) return;
+    }, 1000);
+    const timeout = window.setTimeout(() => {
+      const cv = (window as any).cv;
+      if (!cv) {
         setOpenCvStatus("error");
-        setOpenCvError(e instanceof Error ? e.message : String(e));
-      });
-    return () => {
-      cancelled = true;
-      // Cleanup: release the large wasmBinary buffer reference.
-      try {
-        const mod = (window as any).Module;
-        if (mod && typeof mod === "object") {
-          delete mod.wasmBinary;
-        }
-      } catch {}
-      openCvWasmBinaryRef.current = null;
-      try {
-        if (openCvWasmObjectUrlRef.current) URL.revokeObjectURL(openCvWasmObjectUrlRef.current);
-      } catch {}
-      openCvWasmObjectUrlRef.current = null;
-    };
-  }, []);
-
-  // When OpenCV fails (cv not present / not initialized), run a brute URL check
-  // and capture global script/wasm errors to show on-screen (no console needed).
-  useEffect(() => {
-    if (openCvStatus !== "error") return;
-    let cancelled = false;
-
-    const onErr = (ev: Event) => {
-      if (cancelled) return;
-      try {
-        const e = ev as ErrorEvent;
-        const msg = e?.message || "script error";
-        const src = e?.filename ? ` @ ${e.filename}:${e.lineno ?? 0}` : "";
-        setOpenCvFetchDiag((prev) => (prev ? `${prev}\nJS error: ${msg}${src}` : `JS error: ${msg}${src}`));
-      } catch {}
-    };
-    const onRej = (ev: PromiseRejectionEvent) => {
-      if (cancelled) return;
-      try {
-        const msg = ev?.reason instanceof Error ? ev.reason.message : String(ev?.reason ?? "unhandled rejection");
-        setOpenCvFetchDiag((prev) => (prev ? `${prev}\nPromise: ${msg}` : `Promise: ${msg}`));
-      } catch {}
-    };
-    window.addEventListener("error", onErr);
-    window.addEventListener("unhandledrejection", onRej);
-
-    const run = async () => {
-      try {
-        const base = window.location.origin;
-        const urls = [`${base}/lib/opencv.js`, `${base}/lib/opencv.wasm`, `${base}/lib/opencv_js.wasm`];
-        const results: string[] = [];
-        for (const u of urls) {
-          try {
-            const res = await fetch(u, { method: "GET", cache: "no-store" });
-            const ct = res.headers.get("content-type") || "-";
-            results.push(`${u} → ${res.status} (${ct})`);
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            results.push(`${u} → fetch error (${msg})`);
-          }
-        }
-        if (!cancelled) setOpenCvFetchDiag(results.join("\n"));
-      } catch {}
-    };
-    run();
-
-    return () => {
-      cancelled = true;
-      window.removeEventListener("error", onErr);
-      window.removeEventListener("unhandledrejection", onRej);
-    };
-  }, [openCvStatus]);
-
-  // Hard polling (plan B): if `cv` exists but runtime isn't initialized yet,
-  // keep checking `cv.Mat` directly every 500ms.
-  useEffect(() => {
-    if (openCvStatus === "ready" || openCvStatus === "error") return;
-    let cancelled = false;
-    const tick = () => {
-      if (cancelled) return;
-      try {
-        if (isOpenCvReady()) {
-          const cv = (window as any).cv;
-          if (cv?.aruco && cv?.aruco?.detectMarkers && cv?.aruco?.getPredefinedDictionary) {
-            setOpenCvStatus("ready");
-            setOpenCvError(null);
-            setShowForceRefresh(false);
-            return;
-          }
-          setOpenCvStatus("error");
-          setOpenCvError("OPENCV_READY_NO_ARUCO: modulo ArUco assente o API non esposte in questo build.");
-          return;
-        }
-      } catch {
-        // ignore and keep polling
+        setOpenCvError("ERRORE: window.cv non trovato nel DOM");
       }
-
-      const startedAt = openCvBootStartedAtRef.current || 0;
-      if (startedAt > 0 && performance.now() - startedAt > 10_000) {
-        setShowForceRefresh(true);
-      }
-    };
-    tick();
-    const id = window.setInterval(tick, 500);
+    }, 5000);
     return () => {
-      cancelled = true;
       window.clearInterval(id);
+      window.clearTimeout(timeout);
     };
-  }, [openCvStatus]);
-
-  const forceHardRefresh = useCallback(async () => {
-    try {
-      if ("caches" in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map((k) => caches.delete(k)));
-      }
-    } catch {}
-    try {
-      if ("serviceWorker" in navigator) {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(regs.map((r) => r.unregister()));
-      }
-    } catch {}
-    try {
-      window.location.reload();
-    } catch {}
   }, []);
 
   useEffect(() => {
@@ -4310,26 +4102,10 @@ export default function ScannerCattura() {
                   ? "AVVIO..."
                   : "AVVIA SCANNER"}
           </button>
-          {openCvStatus === "loading" && showForceRefresh ? (
-            <button
-              type="button"
-              onClick={forceHardRefresh}
-              className="mt-3 rounded-xl border border-white/10 bg-black/40 px-4 py-2 text-[12px] font-semibold tracking-[0.08em] text-white/75 backdrop-blur-2xl"
-            >
-              FORZA REFRESH
-            </button>
-          ) : null}
           {openCvStatus === "error" && openCvError ? (
             <div className="pointer-events-none absolute bottom-[22%] left-1/2 w-[min(92vw,30rem)] -translate-x-1/2 text-center">
               <div className="rounded-2xl border border-red-300/18 bg-black/65 px-4 py-3 text-[12px] font-medium text-red-100/85 backdrop-blur-2xl">
                 {openCvError}
-              </div>
-            </div>
-          ) : null}
-          {openCvStatus === "error" && openCvFetchDiag ? (
-            <div className="pointer-events-none absolute bottom-[8%] left-1/2 w-[min(92vw,34rem)] -translate-x-1/2 text-center">
-              <div className="rounded-2xl border border-white/10 bg-black/55 px-4 py-3 text-left font-mono text-[10px] leading-snug text-white/70 backdrop-blur-2xl whitespace-pre-wrap">
-                {openCvFetchDiag}
               </div>
             </div>
           ) : null}

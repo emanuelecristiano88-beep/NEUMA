@@ -40,6 +40,30 @@
         rel="stylesheet"
       />
     </noscript>
+    <script>
+      window.cvReady = false;
+      window.Module = {
+        onRuntimeInitialized: function () {
+          window.cvReady = true;
+          console.log("OPENCV WASM: FULLY INITIALIZED");
+        },
+        locateFile: function (path) {
+          if (path && path.endsWith(".wasm")) return "/opencv_js.wasm";
+          return path;
+        },
+      };
+    </script>
+    <script src="/opencv.js" type="text/javascript"></script>
+    <script>
+      console.log("Controllo manuale OpenCV...");
+      setTimeout(() => {
+        if (window.cv) {
+          console.log("CV trovato!");
+        } else {
+          alert("ERRORE CRITICO: Il browser ha scaricato opencv.js ma non lo ha eseguito. Prova a ricaricare.");
+        }
+      }, 5000);
+    </script>
     <title>NEUMA</title>
   </head>
   <body>
