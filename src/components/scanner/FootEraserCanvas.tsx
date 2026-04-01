@@ -37,7 +37,7 @@ const SCAN_RADIUS_PX    = 110;
 
 const DOT_R_IDLE  = 4.5;
 const DOT_R_SCAN  = 6;
-const DYING_MS    = 220;
+const DYING_MS    = 250;
 
 // Mirino geometry
 const TICK_LEN    = 14;   // px, inward tick arm length
@@ -57,7 +57,11 @@ const HIDE_AFTER_LOST_MS = 450;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface DyingParticle { id: number; sx: number; sy: number; diedAt: number; }
+/**
+ * A point currently executing its 250 ms death animation.
+ * Held in `animatingPointsRef` until the animation completes.
+ */
+interface AnimatingPoint { id: number; sx: number; sy: number; diedAt: number; }
 interface FpsClock { lastAt: number; fps: number; framesSince: number; lastCalcAt: number; }
 
 // ─── Mirino draw helper ───────────────────────────────────────────────────────
@@ -175,10 +179,11 @@ export function FootEraserCanvas({
   containerRef,
   visible,
 }: Props) {
-  const canvasRef          = useRef<HTMLCanvasElement>(null);
-  const rafRef             = useRef<number>(0);
-  const dyingRef           = useRef<DyingParticle[]>([]);
-  const lastSeenMarkersRef = useRef<number>(0);
+  const canvasRef             = useRef<HTMLCanvasElement>(null);
+  const rafRef                = useRef<number>(0);
+  /** Temporary array of points executing their 250 ms death animation. */
+  const animatingPointsRef    = useRef<AnimatingPoint[]>([]);
+  const lastSeenMarkersRef    = useRef<number>(0);
   const quadsRef           = useRef<OpenCvArucoQuad[]>(markerQuads);
   const fpsRef             = useRef<FpsClock>({ lastAt: 0, fps: 0, framesSince: 0, lastCalcAt: 0 });
 
@@ -187,7 +192,7 @@ export function FootEraserCanvas({
   useEffect(() => {
     if (!visible) {
       cancelAnimationFrame(rafRef.current);
-      dyingRef.current = [];
+      animatingPointsRef.current = [];
       return;
     }
 
@@ -256,9 +261,9 @@ export function FootEraserCanvas({
         const d2 = (dot.sx - cx) ** 2 + (dot.sy - cy) ** 2;
         if (d2 <= MIRINO_RADIUS_PX ** 2) {
           doneIds.push(dot.id);
-          // Queue dying animation before consuming
-          if (!dyingRef.current.some((d) => d.id === dot.id)) {
-            dyingRef.current.push({ id: dot.id, sx: dot.sx, sy: dot.sy, diedAt: now });
+          // Queue in animatingPoints before consuming (supplies screen coords for animation)
+          if (!animatingPointsRef.current.some((a) => a.id === dot.id)) {
+            animatingPointsRef.current.push({ id: dot.id, sx: dot.sx, sy: dot.sy, diedAt: now });
           }
         } else if (d2 <= SCAN_RADIUS_PX ** 2) {
           scanIds.push(dot.id);
@@ -273,8 +278,10 @@ export function FootEraserCanvas({
         eraser.consume(doneIds, scanIds);
       }
 
-      // Evict expired dying particles
-      dyingRef.current = dyingRef.current.filter((p) => now - p.diedAt < DYING_MS);
+      // Evict animatingPoints whose 250 ms window has elapsed
+      animatingPointsRef.current = animatingPointsRef.current.filter(
+        (p) => now - p.diedAt < DYING_MS,
+      );
 
       // ── 4. Draw outer scanning ring (faint amber) ─────────────────────────
       if (trackingOk) {
@@ -308,14 +315,33 @@ export function FootEraserCanvas({
         ctx.fill();
       }
 
-      // ── 7. Dying particles — white shrink + fade ──────────────────────────
-      for (const p of dyingRef.current) {
-        const t     = 1 - (now - p.diedAt) / DYING_MS;
-        const eased = t * t;
+      // ── 7. animatingPoints — ease-out contraction + fade (250 ms) ────────
+      //
+      // t = 1 → 0 as the point ages toward its death.
+      //
+      // Scale uses t² (quadratic ease-out): derivative = 2t, so at t=1 the
+      // radius shrinks FAST (rate = 2·DOT_R_IDLE px/unit) and decelerates
+      // smoothly to a standstill at t = 0.
+      //
+      // Opacity uses t³ (cubic ease-out): fades quickly at first, nearly
+      // invisible well before the scale reaches zero — the point "evaporates".
+      for (const p of animatingPointsRef.current) {
+        // progress: 0 (just consumed) → 1 (animation complete)
+        const progress = Math.min(1, (now - p.diedAt) / DYING_MS);
+        // t: 1 → 0 (remaining life fraction)
+        const t = 1 - progress;
+
+        // ease-out scale: fast initial contraction, decelerates near 0
+        const scaledR = DOT_R_IDLE * t * t;          // t² → quadratic ease-out
+        // ease-out opacity: point vanishes faster than it contracts
+        const alpha   = t * t * t;                    // t³ → cubic ease-out
+
+        if (scaledR < 0.15 || alpha < 0.01) continue; // skip nearly invisible
+
         ctx.save();
-        ctx.globalAlpha = eased;
+        ctx.globalAlpha = alpha;
         ctx.beginPath();
-        ctx.arc(p.sx, p.sy, eased * (DOT_R_IDLE + 5), 0, Math.PI * 2);
+        ctx.arc(p.sx, p.sy, scaledR, 0, Math.PI * 2);
         ctx.fillStyle = C_DYING;
         ctx.fill();
         ctx.restore();
