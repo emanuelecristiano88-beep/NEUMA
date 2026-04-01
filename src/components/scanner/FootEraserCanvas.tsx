@@ -26,6 +26,8 @@ import {
   estimateCameraIntrinsics,
   estimatePoseFromQuads,
   projectDomePoints,
+  computeCameraWorldPos,
+  type ObservationData,
 } from "@/lib/aruco/poseEstimation";
 
 // ─── Visual constants ─────────────────────────────────────────────────────────
@@ -226,6 +228,12 @@ interface Props {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   containerRef: React.RefObject<HTMLElement | null>;
   visible: boolean;
+  /**
+   * Called once per dot the instant it enters the Mirino and is consumed.
+   * Receives the full ObservationData (camera world position, orientation,
+   * dot world position) so the parent can build a capture path for 3D reconstruction.
+   */
+  onPointCaptured?: (obs: ObservationData) => void;
 }
 
 export function FootEraserCanvas({
@@ -235,6 +243,7 @@ export function FootEraserCanvas({
   videoRef,
   containerRef,
   visible,
+  onPointCaptured,
 }: Props) {
   const canvasRef             = useRef<HTMLCanvasElement>(null);
   const rafRef                = useRef<number>(0);
@@ -246,10 +255,13 @@ export function FootEraserCanvas({
    * Kept stale during ghost window so dots don't jump on brief tracking loss.
    */
   const smoothedPoseRef       = useRef<import("@/lib/aruco/poseEstimation").CameraPose | null>(null);
+  /** Stable ref so the draw() closure always calls the latest callback. */
+  const onPointCapturedRef    = useRef(onPointCaptured);
   const quadsRef              = useRef<OpenCvArucoQuad[]>(markerQuads);
   const fpsRef                = useRef<FpsClock>({ lastAt: 0, fps: 0, framesSince: 0, lastCalcAt: 0 });
 
   useEffect(() => { quadsRef.current = markerQuads; }, [markerQuads]);
+  useEffect(() => { onPointCapturedRef.current = onPointCaptured; }, [onPointCaptured]);
 
   useEffect(() => {
     if (!visible) {
@@ -357,9 +369,43 @@ export function FootEraserCanvas({
         const d2 = (dot.sx - cx) ** 2 + (dot.sy - cy) ** 2;
         if (trackingLive && d2 <= MIRINO_RADIUS_PX ** 2) {
           doneIds.push(dot.id);
-          // Queue in animatingPoints before consuming (supplies screen coords for animation)
-          if (!animatingPointsRef.current.some((a) => a.id === dot.id)) {
+
+          // Queue the death animation (only once per dot)
+          const alreadyAnimating = animatingPointsRef.current.some((a) => a.id === dot.id);
+          if (!alreadyAnimating) {
             animatingPointsRef.current.push({ id: dot.id, sx: dot.sx, sy: dot.sy, diedAt: now });
+
+            // ── Capture observation ─────────────────────────────────────────
+            // Fire once per dot, only when we have a valid smoothed pose.
+            // Camera world position and orientation are expressed in the A4
+            // sheet coordinate system (Y-up, origin = A4 centre).
+            const cb   = onPointCapturedRef.current;
+            const pose = smoothedPoseRef.current;
+            if (cb && pose) {
+              const worldPt = eraser.remainingPoints.find((p) => p.id === dot.id);
+              if (worldPt) {
+                const { R, t } = pose;
+                const cameraWorldPos = computeCameraWorldPos(R, t);
+                // Camera look direction = 3rd row of R (R maps world→cam, so R^T
+                // maps cam→world; the cam Z-axis [0,0,1] in world = col2 of R^T =
+                // row2 of R).
+                const lookDirWorld: [number, number, number] = [R[6], R[7], R[8]];
+
+                const obs: ObservationData = {
+                  dotId:                dot.id,
+                  cameraWorldPos,
+                  lookDirWorld,
+                  cameraRotationMatrix: [...R],
+                  dotWorldPos:          [worldPt.wx, worldPt.wy, worldPt.wz],
+                  timestamp:            now,
+                };
+                cb(obs);
+                console.log(
+                  `Punto di osservazione salvato per il pallino ID: ${dot.id}` +
+                  ` | pos=(${cameraWorldPos.map((v) => v.toFixed(3)).join(", ")})m`,
+                );
+              }
+            }
           }
         } else if (trackingLive && d2 <= SCAN_RADIUS_PX ** 2) {
           scanIds.push(dot.id);

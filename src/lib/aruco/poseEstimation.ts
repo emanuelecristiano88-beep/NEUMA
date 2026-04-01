@@ -69,6 +69,61 @@ export interface CameraPose {
   t: [number, number, number];
 }
 
+/**
+ * A single observation captured the instant a dome point enters the Mirino.
+ *
+ * All coordinates are in the **world (A4 sheet) coordinate system**:
+ *   X = right  (long side),  Y = up (off sheet),  Z = forward (short side)
+ *   Origin = centre of the A4 sheet / foot reference centre.
+ *
+ * These records form the "observation path" used later to reconstruct the
+ * 3D foot shape from multi-view photometric data.
+ */
+export interface ObservationData {
+  /** ID of the erased dome point (0–149). */
+  dotId: number;
+  /**
+   * Camera optical centre in world coordinates (metres).
+   * Derived from pose: p_world = −R^T · t
+   */
+  cameraWorldPos: [number, number, number];
+  /**
+   * Unit vector pointing from the camera towards the scene, in world space.
+   * Equivalent to the third row of R (camera Z-axis expressed in world frame).
+   */
+  lookDirWorld: [number, number, number];
+  /**
+   * Full 3×3 rotation matrix from pose (world → camera), row-major.
+   * Kept for downstream algorithms that need the complete orientation.
+   */
+  cameraRotationMatrix: number[];
+  /** 3D world position [wx, wy, wz] of the erased dome point (metres). */
+  dotWorldPos: [number, number, number];
+  /** performance.now() timestamp at the moment of capture. */
+  timestamp: number;
+}
+
+/**
+ * Extract the camera's position in world (A4 sheet) coordinates from a pose.
+ *
+ * Math:
+ *   The pose stores  t  such that  p_cam = R · p_world + t
+ *   Solving for the camera origin (p_world when p_cam = 0):
+ *     p_world = −R^T · t      (since R is orthonormal, R^{−1} = R^T)
+ */
+export function computeCameraWorldPos(
+  R: number[],
+  t: [number, number, number],
+): [number, number, number] {
+  const [tx, ty, tz] = t;
+  // R^T · t  — rows of R^T are columns of R
+  return [
+    -(R[0] * tx + R[3] * ty + R[6] * tz),
+    -(R[1] * tx + R[4] * ty + R[7] * tz),
+    -(R[2] * tx + R[5] * ty + R[8] * tz),
+  ];
+}
+
 type Vec3 = [number, number, number];
 
 function norm3(v: Vec3): number { return Math.sqrt(v[0]**2 + v[1]**2 + v[2]**2); }

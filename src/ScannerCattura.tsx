@@ -12,6 +12,7 @@ import { requestOrientationAccess } from "./hooks/useDeviceTilt";
 import { useScanFrameOrientation } from "./hooks/useScanFrameOrientation";
 import { useFootEraser } from "./hooks/useFootEraser";
 import { FootEraserCanvas } from "./components/scanner/FootEraserCanvas";
+import type { ObservationData } from "./lib/aruco/poseEstimation";
 import { ScannerAppleProgress } from "./components/scanner/ScannerAppleProgress";
 import { useScanGuidance } from "./hooks/useScanGuidance";
 import ScannerAlignmentOverlay from "./components/scanner/ScannerAlignmentOverlay";
@@ -581,6 +582,14 @@ export default function ScannerCattura() {
   const dotCloudConsumedRef = useRef(0);
   const dotCloudStartedRef = useRef(false);
   const dotCloudDoneRef = useRef(false);
+  /**
+   * Accumulates one ObservationData record per erased dome point.
+   * Each record contains the camera's world position + orientation at the
+   * instant the point was consumed — this is the "observation path" used
+   * for 3D foot reconstruction.
+   * Not stored in React state to avoid re-renders on every capture.
+   */
+  const capturedDataRef = useRef<ObservationData[]>([]);
   const lastArucoSeenAtRef = useRef(0);
   const domeFadeStartAtRef = useRef(0);
   const domeOpacityRef = useRef(0);
@@ -1386,6 +1395,16 @@ export default function ScannerCattura() {
   const stopAndUploadDotCloud = useCallback(async () => {
     if (dotCloudDoneRef.current) return;
     dotCloudDoneRef.current = true;
+
+    // Log the full observation path for debugging / downstream reconstruction.
+    const obs = capturedDataRef.current;
+    console.log(
+      `[NEUMA] Scansione completata — ${obs.length} punti di osservazione salvati.`,
+      obs.length > 0
+        ? `Primo: ID ${obs[0].dotId} | pos=(${obs[0].cameraWorldPos.map((v) => v.toFixed(3)).join(", ")})m`
+        : "(nessun punto)",
+    );
+
     setCameraState("uploading");
     try {
       await stopVideoRecording();
@@ -2029,6 +2048,7 @@ export default function ScannerCattura() {
     dotCloudConsumedRef.current = 0;
     dotCloudStartedRef.current = false;
     dotCloudDoneRef.current = false;
+    capturedDataRef.current = [];
     setDotCloudProgressPct(0);
     domeFadeStartAtRef.current = 0;
     domeOpacityRef.current = 0;
@@ -4260,6 +4280,7 @@ export default function ScannerCattura() {
         videoRef={videoRef}
         containerRef={videoContainerRef}
         visible={STARLINK_DOT_CLOUD_MODE && cameraState === "readyPhase" && !eraser.isComplete}
+        onPointCaptured={(obs) => { capturedDataRef.current.push(obs); }}
       />
 
       {/* Apple-style WatchOS progress ring — top-right, Starlink mode only */}
