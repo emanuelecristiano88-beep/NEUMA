@@ -59,6 +59,7 @@ export function useOpenCvArucoAnalysis(videoRef: React.RefObject<HTMLVideoElemen
     rgba: any;
     gray: any;
     bw: any;
+    cap: any;
     corners: any;
     ids: any;
     rejected: any;
@@ -103,6 +104,9 @@ export function useOpenCvArucoAnalysis(videoRef: React.RefObject<HTMLVideoElemen
         const rgba = new cv.Mat(480, 640, cv.CV_8UC4);
         const gray = new cv.Mat(480, 640, cv.CV_8UC1);
         const bw = new cv.Mat(480, 640, cv.CV_8UC1);
+        // Capture source will be the analysis canvas (stable 640x480).
+        if (!analysisCanvasRef.current) analysisCanvasRef.current = document.createElement("canvas");
+        const cap = new cv.VideoCapture(analysisCanvasRef.current);
         const corners = new cv.MatVector();
         const ids = new cv.Mat();
         const rejected = new cv.MatVector();
@@ -113,7 +117,7 @@ export function useOpenCvArucoAnalysis(videoRef: React.RefObject<HTMLVideoElemen
           if ("adaptiveThreshWinSizeStep" in params) params.adaptiveThreshWinSizeStep = 4;
           if ("cornerRefinementMethod" in params) params.cornerRefinementMethod = cv.aruco.CORNER_REFINE_SUBPIX;
         }
-        matsRef.current = { rgba, gray, bw, corners, ids, rejected, dict, params };
+        matsRef.current = { rgba, gray, bw, cap, corners, ids, rejected, dict, params };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         liveRef.current = { ...liveRef.current, status: "error", error: msg };
@@ -129,6 +133,7 @@ export function useOpenCvArucoAnalysis(videoRef: React.RefObject<HTMLVideoElemen
         m?.rgba?.delete?.();
         m?.gray?.delete?.();
         m?.bw?.delete?.();
+        // cap is a lightweight wrapper (no delete in most builds)
         m?.corners?.delete?.();
         m?.ids?.delete?.();
         m?.rejected?.delete?.();
@@ -149,7 +154,8 @@ export function useOpenCvArucoAnalysis(videoRef: React.RefObject<HTMLVideoElemen
       if (busyRef.current) return;
       if (t < skipUntilRef.current) return;
       const video = videoRef.current;
-      if (!video || video.readyState < 2 || !video.videoWidth) return;
+      // VIDEO READY CHECK: wait for HAVE_ENOUGH_DATA.
+      if (!video || video.readyState !== 4 || !video.videoWidth) return;
       const now = performance.now();
 
       // FPS heartbeat: update even while loading / missing cv.
@@ -205,6 +211,8 @@ export function useOpenCvArucoAnalysis(videoRef: React.RefObject<HTMLVideoElemen
           const rgba = new cv.Mat(480, 640, cv.CV_8UC4);
           const gray = new cv.Mat(480, 640, cv.CV_8UC1);
           const bw = new cv.Mat(480, 640, cv.CV_8UC1);
+          if (!analysisCanvasRef.current) analysisCanvasRef.current = document.createElement("canvas");
+          const cap = new cv.VideoCapture(analysisCanvasRef.current);
           const corners = new cv.MatVector();
           const ids = new cv.Mat();
           const rejected = new cv.MatVector();
@@ -216,7 +224,7 @@ export function useOpenCvArucoAnalysis(videoRef: React.RefObject<HTMLVideoElemen
             if ("adaptiveThreshWinSizeStep" in params) params.adaptiveThreshWinSizeStep = 4;
             if ("cornerRefinementMethod" in params) params.cornerRefinementMethod = cv.aruco.CORNER_REFINE_SUBPIX;
           }
-          matsRef.current = { rgba, gray, bw, corners, ids, rejected, dict, params };
+          matsRef.current = { rgba, gray, bw, cap, corners, ids, rejected, dict, params };
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           const next: OpenCvArucoSnapshot = { ...liveRef.current, status: "error", error: msg, analysisFps: fpsRef.current.fps, detectMs: 0 };
@@ -241,17 +249,23 @@ export function useOpenCvArucoAnalysis(videoRef: React.RefObject<HTMLVideoElemen
       busyRef.current = true;
 
       try {
+        // THE CAPTURE: draw video into analysis canvas, then cap.read(rgba).
         drawCover(ctx, video, w, h);
+        try {
+          m.cap?.read?.(m.rgba);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          const next: OpenCvArucoSnapshot = { ...liveRef.current, status: "error", error: `cap.read failed: ${msg}`, analysisFps: fpsRef.current.fps, detectMs: 0 };
+          liveRef.current = next;
+          setSnapshot(next);
+          return;
+        }
 
-        // Direct buffer -> cv (no toDataURL). Use imread from canvas.
-        const t0 = performance.now();
-        // Read frame -> temporary RGBA mat, then reuse pre-allocated gray/bw mats.
-        const rgbaTmp = cv.imread(canvas);
-        cv.cvtColor(rgbaTmp, m.gray, cv.COLOR_RGBA2GRAY, 0);
-        rgbaTmp.delete?.();
+        // Convert frame for detector.
+        cv.cvtColor(m.rgba, m.gray, cv.COLOR_RGBA2GRAY, 0);
         cv.adaptiveThreshold(m.gray, m.bw, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 31, 7);
 
-        // detect markers
+        // ARUCO EXECUTION (timed tightly around detectMarkers).
         // NOTE: OpenCV.js doesn't provide a clear() on MatVector across builds.
         // We recreate only these lightweight containers per-frame; heavy Mats stay pre-allocated.
         m.corners.delete?.();
@@ -260,9 +274,11 @@ export function useOpenCvArucoAnalysis(videoRef: React.RefObject<HTMLVideoElemen
         m.corners = new cv.MatVector();
         m.rejected = new cv.MatVector();
         m.ids = new cv.Mat();
+        const t0 = performance.now();
         cv.aruco.detectMarkers(m.bw, m.dict, m.corners, m.ids, m.params, m.rejected);
+        const t1 = performance.now();
 
-        const detectMs = performance.now() - t0;
+        const detectMs = t1 - t0;
 
         const markerCount = m.ids?.rows ? m.ids.rows : 0;
         const idsRaw: number[] = [];
@@ -295,6 +311,28 @@ export function useOpenCvArucoAnalysis(videoRef: React.RefObject<HTMLVideoElemen
           pipCanvas.width = 160;
           pipCanvas.height = 120;
           cv.imshow(pipCanvas, m.bw);
+          // DRAW OVERLAY: red marker quads over the pip for "sign of life".
+          try {
+            const pctx = pipCanvas.getContext("2d");
+            if (pctx && quadsNorm.length) {
+              pctx.save();
+              pctx.strokeStyle = "rgba(255,70,70,0.95)";
+              pctx.lineWidth = 2;
+              for (const q of quadsNorm) {
+                if (!q.corners?.length) continue;
+                pctx.beginPath();
+                pctx.moveTo(q.corners[0].x * pipCanvas.width, q.corners[0].y * pipCanvas.height);
+                for (let i = 1; i < q.corners.length; i++) {
+                  pctx.lineTo(q.corners[i].x * pipCanvas.width, q.corners[i].y * pipCanvas.height);
+                }
+                pctx.closePath();
+                pctx.stroke();
+              }
+              pctx.restore();
+            }
+          } catch {
+            // ignore
+          }
         }
 
         const next: OpenCvArucoSnapshot = {
