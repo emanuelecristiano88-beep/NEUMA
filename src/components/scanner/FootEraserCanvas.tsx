@@ -69,6 +69,19 @@ const GHOST_MS = 500;
  */
 const SMOOTH_ALPHA = 0.40;
 
+// ─── Guidance thresholds ──────────────────────────────────────────────────────
+
+/** Camera-to-sheet distance (metres) above which "Avvicinati al piede" appears. */
+const DIST_TOO_FAR_M = 0.50;
+/** EMA camera speed (m/s) above which "Rallenta il movimento" appears. */
+const SPEED_TOO_FAST_MS = 0.55;
+/** Mean video frame luminance (0–255) below which "Più luce necessaria" appears. */
+const BRIGHTNESS_LOW = 60;
+/** Minimum ms the guidance message stays visible after its condition clears. */
+const GUIDANCE_HOLD_MS = 1100;
+/** Interval between brightness samples (ms) — sampling is expensive. */
+const BRIGHTNESS_SAMPLE_INTERVAL = 2500;
+
 // ─── Math helpers ─────────────────────────────────────────────────────────────
 
 type Vec3 = [number, number, number];
@@ -260,6 +273,23 @@ export function FootEraserCanvas({
   const quadsRef              = useRef<OpenCvArucoQuad[]>(markerQuads);
   const fpsRef                = useRef<FpsClock>({ lastAt: 0, fps: 0, framesSince: 0, lastCalcAt: 0 });
 
+  // ── Guidance state (DOM-mutated, never drives React state) ────────────────
+  /** The translucent pill element shown above the mirino. */
+  const guidanceDivRef         = useRef<HTMLDivElement | null>(null);
+  /** Last message written to the pill (used to detect changes). */
+  const lastGuidanceMsgRef     = useRef<string | null>(null);
+  /** Active-until timestamp: message stays visible until this time. */
+  const guidanceActiveUntilRef = useRef<{ msg: string; until: number } | null>(null);
+  /** Moving-average camera speed (m/s). Decays naturally per frame. */
+  const speedEmaRef            = useRef<number>(0);
+  /** Previous valid camera world position (for delta speed calculation). */
+  const prevCamPosRef          = useRef<[number, number, number] | null>(null);
+  const prevCamTimeRef         = useRef<number>(0);
+  /** Last brightness sample result. Updated every BRIGHTNESS_SAMPLE_INTERVAL ms. */
+  const lightCheckRef          = useRef<{ lastAt: number; brightness: number }>({
+    lastAt: 0, brightness: 255,
+  });
+
   useEffect(() => { quadsRef.current = markerQuads; }, [markerQuads]);
   useEffect(() => { onPointCapturedRef.current = onPointCaptured; }, [onPointCaptured]);
 
@@ -352,6 +382,115 @@ export function FootEraserCanvas({
       let projectedAll: { id: number; sx: number; sy: number }[] = [];
       if (trackingOk && smoothedPoseRef.current) {
         projectedAll = projectDomePoints(eraser.remainingPoints, smoothedPoseRef.current, K, w, h);
+      }
+
+      // ── 3b. Guidance metrics & message ────────────────────────────────────
+      //
+      // Three conditions, evaluated in priority order:
+      //   1. "Più luce necessaria"  — video brightness too low (sampled every 2.5 s)
+      //   2. "Avvicinati al piede"  — camera > 50 cm from A4 sheet centre
+      //   3. "Rallenta il movimento"— EMA camera speed > 0.55 m/s
+      //
+      // Messages are written directly to a DOM div (no React state) to avoid
+      // triggering re-renders from the 60 fps RAF loop.
+
+      // 3b-i. Light check — sampled on a slow timer to keep the loop cheap
+      if (video && video.videoWidth > 0 && now - lightCheckRef.current.lastAt > BRIGHTNESS_SAMPLE_INTERVAL) {
+        lightCheckRef.current.lastAt = now;
+        try {
+          const oc  = new OffscreenCanvas(32, 24);
+          const oc2 = oc.getContext("2d");
+          if (oc2) {
+            oc2.drawImage(video, 0, 0, 32, 24);
+            const d = oc2.getImageData(0, 0, 32, 24).data;
+            let sum = 0;
+            for (let k = 0; k < d.length; k += 4) {
+              // Rec. 709 luminance
+              sum += 0.2126 * d[k] + 0.7152 * d[k + 1] + 0.0722 * d[k + 2];
+            }
+            lightCheckRef.current.brightness = sum / (32 * 24);
+          }
+        } catch { /* OffscreenCanvas unavailable — treat as adequate light */ }
+      }
+
+      // 3b-ii. Speed EMA — natural per-frame decay so it falls off without new measurements
+      speedEmaRef.current *= 0.92; // ~1 s half-life at 30 fps
+
+      let camDist = 0;
+      if (trackingLive && smoothedPoseRef.current) {
+        const { t } = smoothedPoseRef.current;
+        // Camera distance from A4 origin = |p_world| = |−R^T·t| = |t| (R orthonormal)
+        camDist = Math.sqrt(t[0] ** 2 + t[1] ** 2 + t[2] ** 2);
+
+        const camPos = computeCameraWorldPos(smoothedPoseRef.current.R, t);
+        if (prevCamPosRef.current && prevCamTimeRef.current > 0) {
+          const dt = (now - prevCamTimeRef.current) / 1000; // seconds
+          if (dt > 0.001 && dt < 0.25) {
+            const dx = camPos[0] - prevCamPosRef.current[0];
+            const dy = camPos[1] - prevCamPosRef.current[1];
+            const dz = camPos[2] - prevCamPosRef.current[2];
+            const rawSpeed = Math.sqrt(dx ** 2 + dy ** 2 + dz ** 2) / dt;
+            // EMA: blend toward new measurement
+            speedEmaRef.current = 0.80 * speedEmaRef.current + 0.20 * rawSpeed;
+          }
+        }
+        prevCamPosRef.current = camPos;
+        prevCamTimeRef.current = now;
+      } else if (!trackingOk) {
+        // Full loss: reset so there's no stale spike when tracking recovers
+        prevCamPosRef.current = null;
+        speedEmaRef.current   = 0;
+      }
+
+      // 3b-iii. Pick the highest-priority message (null = all good)
+      let suggestedGuidance: string | null = null;
+      if (!eraser.isComplete) {
+        if (lightCheckRef.current.brightness < BRIGHTNESS_LOW) {
+          suggestedGuidance = "Più luce necessaria";
+        } else if (trackingOk && camDist > DIST_TOO_FAR_M) {
+          suggestedGuidance = "Avvicinati al piede";
+        } else if (trackingLive && speedEmaRef.current > SPEED_TOO_FAST_MS) {
+          suggestedGuidance = "Rallenta il movimento";
+        }
+      }
+
+      // Extend hold window while condition is active, then keep for GUIDANCE_HOLD_MS
+      if (suggestedGuidance) {
+        guidanceActiveUntilRef.current = { msg: suggestedGuidance, until: now + GUIDANCE_HOLD_MS };
+      }
+      const shownGuidance =
+        guidanceActiveUntilRef.current && now < guidanceActiveUntilRef.current.until
+          ? guidanceActiveUntilRef.current.msg
+          : null;
+
+      // 3b-iv. DOM mutation — only when message changes to avoid style thrash
+      if (shownGuidance !== lastGuidanceMsgRef.current) {
+        const prev      = lastGuidanceMsgRef.current;
+        lastGuidanceMsgRef.current = shownGuidance;
+        const gdiv = guidanceDivRef.current;
+        if (gdiv) {
+          if (!shownGuidance) {
+            // Fade out (text stays in DOM, just hidden)
+            gdiv.style.opacity   = "0";
+            gdiv.style.transform = "translateX(-50%) translateY(-7px)";
+          } else if (!prev) {
+            // Appearing from nothing: set text first, then fade in
+            gdiv.textContent     = shownGuidance;
+            gdiv.style.opacity   = "1";
+            gdiv.style.transform = "translateX(-50%) translateY(0)";
+          } else {
+            // Swapping messages: fade out → change text → fade in
+            gdiv.style.opacity   = "0";
+            const nextMsg = shownGuidance;
+            setTimeout(() => {
+              if (guidanceDivRef.current === gdiv) {
+                gdiv.textContent     = nextMsg;
+                gdiv.style.opacity   = "1";
+                gdiv.style.transform = "translateX(-50%) translateY(0)";
+              }
+            }, 200);
+          }
+        }
       }
 
       // ── 4. Classify dots: done / scanning / idle ──────────────────────────
@@ -525,17 +664,61 @@ export function FootEraserCanvas({
   if (!visible) return null;
 
   return (
-    <canvas
-      ref={canvasRef}
-      aria-hidden
-      style={{
-        position: "absolute",
-        inset: 0,
-        width: "100%",
-        height: "100%",
-        pointerEvents: "none",
-        zIndex: 25,
-      }}
-    />
+    <>
+      {/* Main eraser overlay canvas */}
+      <canvas
+        ref={canvasRef}
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          pointerEvents: "none",
+          zIndex: 25,
+        }}
+      />
+
+      {/*
+       * iOS-style guidance pill — appears at 22% from top, centered.
+       * Opacity and transform are mutated directly in the RAF loop (no React
+       * state) for zero re-render overhead.  CSS transition handles the
+       * smooth fade + subtle vertical slide.
+       *
+       * Starts invisible (opacity:0, slightly above resting position).
+       */}
+      <div
+        ref={guidanceDivRef}
+        aria-live="polite"
+        style={{
+          position: "absolute",
+          top: "22%",
+          left: "50%",
+          transform: "translateX(-50%) translateY(-7px)",
+          zIndex: 30,
+          opacity: 0,
+          transition:
+            "opacity 360ms cubic-bezier(0.22,1,0.36,1), transform 360ms cubic-bezier(0.22,1,0.36,1)",
+          // Glass pill
+          background: "rgba(10, 10, 14, 0.52)",
+          backdropFilter: "blur(20px) saturate(180%)",
+          WebkitBackdropFilter: "blur(20px) saturate(180%)",
+          border: "1px solid rgba(255, 255, 255, 0.13)",
+          borderRadius: 999,
+          padding: "10px 24px",
+          // Typography
+          fontFamily: "ui-rounded, -apple-system, BlinkMacSystemFont, sans-serif",
+          fontWeight: 500,
+          fontSize: 15,
+          color: "rgba(255, 255, 255, 0.93)",
+          letterSpacing: "0.01em",
+          whiteSpace: "nowrap",
+          pointerEvents: "none",
+          userSelect: "none",
+          // Subtle text shadow for legibility over bright video
+          textShadow: "0 1px 4px rgba(0,0,0,0.5)",
+        }}
+      />
+    </>
   );
 }
