@@ -1216,22 +1216,24 @@ export default function ScannerCattura() {
     frameTiltRef.current = frameTilt;
   }, [frameTilt]);
 
-  // When all 150 eraser points are consumed → 3-second countdown → capture
+  // When all 150 eraser points are consumed → vibrate 200ms → show completion
+  // overlay → capture after 2.8 s (enough time to read the message).
   useEffect(() => {
     if (!eraser.isComplete || cameraState !== "readyPhase" || !STARLINK_DOT_CLOUD_MODE) return;
-    let secs = 3;
-    setFinalCountdown(secs);
-    const iv = setInterval(() => {
-      secs -= 1;
-      if (secs <= 0) {
-        clearInterval(iv);
-        setFinalCountdown(null);
-        void stopAndUploadDotCloud();
-      } else {
-        setFinalCountdown(secs);
-      }
-    }, 1000);
-    return () => clearInterval(iv);
+
+    // Haptic confirmation: 200 ms burst
+    try { navigator.vibrate(200); } catch (_) { /* not available on all devices */ }
+
+    // Show the elegant overlay (reusing finalCountdown as a binary flag:
+    // value > 0 = overlay is visible, null = hidden)
+    setFinalCountdown(1);
+
+    const t = setTimeout(() => {
+      setFinalCountdown(null);
+      void stopAndUploadDotCloud();
+    }, 2800);
+
+    return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eraser.isComplete, cameraState]);
 
@@ -4265,6 +4267,7 @@ export default function ScannerCattura() {
         progress={eraser.progress}
         remaining={eraser.remainingPoints.length}
         visible={STARLINK_DOT_CLOUD_MODE && cameraState === "readyPhase"}
+        isComplete={eraser.isComplete}
       />
 
       {/* Mini debug view: analysis (B/W) buffer */}
@@ -4480,17 +4483,94 @@ export default function ScannerCattura() {
         </div>
       ) : null}
 
-      {/* ── Final-capture countdown (3-2-1) after all eraser points cleared ── */}
+      {/* ── Completion overlay: "Scansione Completata. Elaborazione Prototipo…" ── */}
       {STARLINK_DOT_CLOUD_MODE && finalCountdown !== null ? (
-        <div className="pointer-events-none absolute inset-0 z-[115] flex flex-col items-center justify-center gap-5 bg-black/40 backdrop-blur-sm">
+        <div
+          className="pointer-events-none absolute inset-0 z-[115] flex flex-col items-center justify-center gap-6"
+          style={{
+            background: "rgba(0,0,0,0.65)",
+            backdropFilter: "blur(22px) saturate(140%)",
+            WebkitBackdropFilter: "blur(22px) saturate(140%)",
+            animation: "sap-fade-in 400ms cubic-bezier(0.22,1,0.36,1) both",
+          }}
+        >
+          {/* Checkmark ring */}
           <div
-            className="font-black text-white"
-            style={{ fontSize: "clamp(80px, 28vw, 160px)", lineHeight: 1, textShadow: "0 0 40px rgba(34,211,238,0.6)" }}
+            style={{
+              width: 80, height: 80,
+              borderRadius: "50%",
+              border: "3px solid rgba(255,255,255,0.18)",
+              background: "rgba(255,255,255,0.06)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 0 40px rgba(255,255,255,0.12)",
+              animation: "sap-pulse 2.2s ease-in-out infinite",
+            }}
           >
-            {finalCountdown}
+            <svg
+              width={38} height={38} viewBox="0 0 38 38"
+              fill="none" stroke="white" strokeWidth={2.8}
+              strokeLinecap="round" strokeLinejoin="round"
+            >
+              <polyline
+                points="7,19 15,27 31,11"
+                strokeDasharray="40"
+                strokeDashoffset="0"
+                style={{ animation: "sap-check-draw 480ms 150ms cubic-bezier(0.22,1,0.36,1) both" }}
+              />
+            </svg>
           </div>
-          <div className="text-sm font-semibold tracking-widest text-white/70 uppercase">
-            Cattura finale alta risoluzione
+
+          {/* Primary message */}
+          <div
+            style={{
+              fontFamily: "ui-rounded, -apple-system, BlinkMacSystemFont, sans-serif",
+              fontWeight: 700,
+              fontSize: "clamp(22px, 6vw, 28px)",
+              color: "#ffffff",
+              letterSpacing: "-0.4px",
+              textAlign: "center",
+              lineHeight: 1.25,
+              animation: "sap-fade-in 400ms 120ms ease both",
+            }}
+          >
+            Scansione Completata
+          </div>
+
+          {/* Secondary message with pulsing dots */}
+          <div
+            style={{
+              fontFamily: "ui-rounded, -apple-system, BlinkMacSystemFont, sans-serif",
+              fontWeight: 500,
+              fontSize: "clamp(13px, 3.5vw, 15px)",
+              color: "rgba(255,255,255,0.55)",
+              letterSpacing: "0.04em",
+              textAlign: "center",
+              animation: "sap-fade-in 400ms 280ms ease both",
+            }}
+          >
+            Elaborazione Prototipo…
+          </div>
+
+          {/* Thin progress bar / shimmer */}
+          <div
+            style={{
+              width: "min(180px, 52vw)",
+              height: 2,
+              borderRadius: 2,
+              background: "rgba(255,255,255,0.10)",
+              overflow: "hidden",
+              animation: "sap-fade-in 400ms 380ms ease both",
+            }}
+          >
+            <div
+              style={{
+                height: "100%",
+                background:
+                  "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.7) 50%, transparent 100%)",
+                backgroundSize: "200% 100%",
+                animation: "shimmer 1.4s ease-in-out infinite",
+              }}
+            />
           </div>
         </div>
       ) : null}
