@@ -1101,9 +1101,9 @@ export default function ScannerCattura() {
         lastHudAt = t;
         if (fpsEl) fpsEl.innerText = String(Math.round(snap.analysisFps ?? 0));
         if (markersEl) markersEl.innerText = String(snap.markerCount ?? 0);
-        if (wasmEl) wasmEl.innerText = String(snap.arucoEngine ?? "");
-        if (detectEl) detectEl.innerText = `${Math.round(snap.arucoDetectMs ?? 0)}ms`;
-        if (errEl) errEl.innerText = snap.arucoDetectError ?? "";
+        if (wasmEl) wasmEl.innerText = STARLINK_DOT_CLOUD_MODE ? String(snap.status ?? "") : String(snap.arucoEngine ?? "");
+        if (detectEl) detectEl.innerText = STARLINK_DOT_CLOUD_MODE ? `${Math.round(snap.detectMs ?? 0)}ms` : `${Math.round(snap.arucoDetectMs ?? 0)}ms`;
+        if (errEl) errEl.innerText = STARLINK_DOT_CLOUD_MODE ? (snap.error ?? "") : (snap.arucoDetectError ?? "");
         if (dotCloudHudPctRef.current) dotCloudHudPctRef.current.innerText = `${dotCloudProgressRef.current}%`;
       }
 
