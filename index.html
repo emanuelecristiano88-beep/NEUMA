@@ -41,7 +41,8 @@
       />
     </noscript>
     <script>
-      // OpenCV local boot: Module must be defined BEFORE opencv.js executes.
+      // OpenCV boot: fetch WASM binary first, then inject opencv.js.
+      // This avoids the "sync fetching of the wasm failed" crash on Android Chrome.
       window.__opencv_boot = { errors: [], jsLoaded: false, wasmLoaded: false };
 
       window.addEventListener("error", function (e) {
@@ -61,51 +62,52 @@
 
       window.cvReady = false;
       window.Module = {
-        wasmBinaryFile: "/opencv_js.wasm",
-        locateFile: function (path) {
-          return path.endsWith(".wasm") ? "/opencv_js.wasm" : path;
-        },
         onRuntimeInitialized: function () {
           window.cvReady = true;
-          window.__opencv_boot.wasmLoaded = true;
           console.log("OpenCV WASM caricato localmente!");
           var cv = window.cv;
           if (!cv) return;
           console.log("cv.aruco disponibile:", !!cv.aruco);
           if (!cv.aruco) {
-            // Diagnostic: dump visible cv keys for analysis.
             try {
               var keys = Object.keys(cv);
               console.log("cv keys (" + keys.length + "):", keys.slice(0, 80).join(", "));
-              // Search for ArUco under alternate capitalisations.
               var aliases = ["Aruco", "ARUCO", "aruco_"];
               for (var i = 0; i < aliases.length; i++) {
-                if (cv[aliases[i]]) {
-                  cv.aruco = cv[aliases[i]];
-                  console.log("cv.aruco aliased from:", aliases[i]);
-                  break;
-                }
+                if (cv[aliases[i]]) { cv.aruco = cv[aliases[i]]; console.log("aruco alias:", aliases[i]); break; }
               }
-              // Force-init dictionary as smoke test.
               if (cv.aruco && cv.aruco.getPredefinedDictionary) {
-                var dict = cv.aruco.getPredefinedDictionary(0);
-                console.log("ArUco DICT_4X4_50 init OK:", dict);
+                cv.aruco.getPredefinedDictionary(0);
+                console.log("ArUco DICT_4X4_50 init OK");
               }
-            } catch (e) {
-              console.log("ArUco init attempt:", e && e.message);
-            }
+            } catch (e) { console.log("ArUco init attempt:", e && e.message); }
           }
         },
       };
+
+      // Step 1: preload WASM binary so Emscripten never needs a sync XHR.
+      // Step 2: only then inject opencv.js (async=false = blocking, safe order).
+      fetch("/opencv_js.wasm")
+        .then(function (res) {
+          if (!res.ok) throw new Error("WASM fetch " + res.status);
+          return res.arrayBuffer();
+        })
+        .then(function (buf) {
+          window.Module.wasmBinary = new Uint8Array(buf);
+          window.__opencv_boot.wasmLoaded = true;
+          var s = document.createElement("script");
+          s.id = "opencv-script";
+          s.src = "/opencv.js";
+          s.type = "text/javascript";
+          s.async = false;
+          s.onload = function () { window.__opencv_boot.jsLoaded = true; };
+          s.onerror = function () { window.__opencv_boot.errors.push("JS load error: /opencv.js"); };
+          document.head.appendChild(s);
+        })
+        .catch(function (e) {
+          window.__opencv_boot.errors.push("WASM preload: " + (e && e.message ? e.message : String(e)));
+        });
     </script>
-    <script
-      src="/opencv.js"
-      type="text/javascript"
-      async
-      id="opencv-script"
-      onload="window.__opencv_boot.jsLoaded=true"
-      onerror="window.__opencv_boot.errors.push('JS load error: /opencv.js')"
-    ></script>
     <script>
       console.log("Controllo manuale OpenCV...");
       setTimeout(() => {
