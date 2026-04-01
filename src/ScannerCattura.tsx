@@ -12,6 +12,7 @@ import { requestOrientationAccess } from "./hooks/useDeviceTilt";
 import { useScanFrameOrientation } from "./hooks/useScanFrameOrientation";
 import { useFootEraser } from "./hooks/useFootEraser";
 import { FootEraserCanvas } from "./components/scanner/FootEraserCanvas";
+import { ScannerAppleProgress } from "./components/scanner/ScannerAppleProgress";
 import { useScanGuidance } from "./hooks/useScanGuidance";
 import ScannerAlignmentOverlay from "./components/scanner/ScannerAlignmentOverlay";
 import ScanDebugOverlay from "./components/scanner/ScanDebugOverlay";
@@ -4254,6 +4255,13 @@ export default function ScannerCattura() {
         eraser={eraser}
         tiltRef={frameTiltRef}
         visible={STARLINK_DOT_CLOUD_MODE && cameraState === "readyPhase" && !eraser.isComplete}
+      />
+
+      {/* Apple-style WatchOS progress ring — top-right, Starlink mode only */}
+      <ScannerAppleProgress
+        progress={eraser.progress}
+        remaining={eraser.remaining.length}
+        visible={STARLINK_DOT_CLOUD_MODE && cameraState === "readyPhase"}
       />
 
       {/* Mini debug view: analysis (B/W) buffer */}

@@ -1,18 +1,36 @@
 /**
- * FootEraserCanvas — paints the hemisphere eraser overlay on top of the
+ * FootEraserCanvas — hemisphere eraser overlay rendered on top of the
  * live video feed.
  *
- * Layout:
- *  • 150 small red filled circles: remaining hemisphere dots
- *  • White dashed ring at screen centre: the 50 px eraser zone
- *  • Top-left pill: progress % + remaining count
+ * Drawing order each frame:
+ *  1. Dashed white eraser ring at screen centre (50 px radius).
+ *  2. Live hemisphere dots: small red filled circles.
+ *  3. Dying/fading particles: red circles that shrink + fade in 200 ms.
+ *
+ * The canvas manages its own RAF loop and calls `eraser.tick()` which
+ * both projects dots AND returns newly consumed ones for fade animation.
  */
 import React, { useEffect, useRef } from "react";
 import type { ScanFrameTilt } from "@/hooks/useScanFrameOrientation";
 import type { FootEraserState } from "@/hooks/useFootEraser";
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const ERASER_RADIUS_PX = 50;
 const DOT_RADIUS = 4;
+const DYING_DURATION_MS = 200;
+const DOT_COLOR = "rgba(220, 38, 38, 0.9)"; // Tailwind red-600
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface DyingParticle {
+  id: number;
+  sx: number;
+  sy: number;
+  diedAt: number; // performance.now() timestamp
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 interface Props {
   eraser: FootEraserState;
@@ -23,10 +41,12 @@ interface Props {
 export function FootEraserCanvas({ eraser, tiltRef, visible }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number>(0);
+  const dyingRef = useRef<DyingParticle[]>([]);
 
   useEffect(() => {
     if (!visible) {
       cancelAnimationFrame(rafRef.current);
+      dyingRef.current = [];
       return;
     }
 
@@ -37,12 +57,9 @@ export function FootEraserCanvas({ eraser, tiltRef, visible }: Props) {
 
     const draw = () => {
       const parent = canvas.parentElement;
-      if (!parent) {
-        rafRef.current = requestAnimationFrame(draw);
-        return;
-      }
+      if (!parent) { rafRef.current = requestAnimationFrame(draw); return; }
 
-      // Keep canvas sized to container
+      // Keep canvas pixel-perfect to its container
       const w = parent.clientWidth;
       const h = parent.clientHeight;
       if (canvas.width !== w || canvas.height !== h) {
@@ -51,54 +68,63 @@ export function FootEraserCanvas({ eraser, tiltRef, visible }: Props) {
       }
 
       ctx.clearRect(0, 0, w, h);
-
-      // Run tick → project dots + consume those near centre
-      const dots = eraser.tick(tiltRef.current, w, h);
-
+      const now = performance.now();
       const cx = w / 2;
       const cy = h / 2;
 
-      // ── Eraser ring (dashed white circle at screen centre) ─────────────
+      // ── 1. Run eraser tick: project dots + collect newly consumed ────────
+      const { live, consumed } = eraser.tick(tiltRef.current, w, h);
+
+      // Add freshly consumed dots to the dying queue
+      for (const c of consumed) {
+        dyingRef.current.push({ id: c.id, sx: c.sx, sy: c.sy, diedAt: now });
+      }
+
+      // Evict expired dying particles
+      dyingRef.current = dyingRef.current.filter(
+        (p) => now - p.diedAt < DYING_DURATION_MS,
+      );
+
+      // ── 2. Eraser ring (dashed white circle at screen centre) ─────────────
       ctx.save();
       ctx.setLineDash([5, 4]);
       ctx.lineWidth = 1.5;
-      ctx.strokeStyle = "rgba(255,255,255,0.55)";
+      ctx.strokeStyle = "rgba(255,255,255,0.50)";
       ctx.beginPath();
       ctx.arc(cx, cy, ERASER_RADIUS_PX, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
 
-      // ── Red dots ─────────────────────────────────────────────────────────
-      ctx.fillStyle = "rgba(220, 38, 38, 0.88)"; // Tailwind red-600
-      for (const dot of dots) {
+      // ── 3. Live dots ──────────────────────────────────────────────────────
+      ctx.fillStyle = DOT_COLOR;
+      for (const dot of live) {
         ctx.beginPath();
         ctx.arc(dot.sx, dot.sy, DOT_RADIUS, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // ── Progress pill (top-left) ──────────────────────────────────────
-      const pct = eraser.progress;
-      const label = `${pct}%  (${eraser.remaining.length} rimasti)`;
-      const PILL_X = 12;
-      const PILL_Y = 14;
-      ctx.save();
-      ctx.font = "bold 13px ui-monospace, monospace";
-      const tw = ctx.measureText(label).width;
-      const PH = 22;
-      const PW = tw + 20;
-      ctx.fillStyle = "rgba(0,0,0,0.55)";
-      ctx.beginPath();
-      ctx.roundRect(PILL_X, PILL_Y, PW, PH, 5);
-      ctx.fill();
-      ctx.fillStyle = "#ffffff";
-      ctx.fillText(label, PILL_X + 10, PILL_Y + 15);
-      ctx.restore();
+      // ── 4. Dying particles: fade out + scale down ─────────────────────────
+      for (const p of dyingRef.current) {
+        const elapsed = now - p.diedAt;
+        const t = 1 - elapsed / DYING_DURATION_MS; // 1 → 0 (fresh → gone)
+        // ease-in-quad so the pop feels snappy
+        const eased = t * t;
+        const alpha = eased;
+        const scale = eased * (DOT_RADIUS + 3); // grows slightly then shrinks
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.arc(p.sx, p.sy, scale, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(251, 113, 133, 1)"; // rose-400 — different tint on death
+        ctx.fill();
+        ctx.restore();
+      }
 
       rafRef.current = requestAnimationFrame(draw);
     };
 
     rafRef.current = requestAnimationFrame(draw);
-
     return () => cancelAnimationFrame(rafRef.current);
   }, [visible, eraser, tiltRef]);
 
@@ -107,6 +133,7 @@ export function FootEraserCanvas({ eraser, tiltRef, visible }: Props) {
   return (
     <canvas
       ref={canvasRef}
+      aria-hidden
       style={{
         position: "absolute",
         inset: 0,
