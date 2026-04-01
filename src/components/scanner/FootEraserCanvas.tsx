@@ -128,24 +128,28 @@ function orthonormalize(R: number[]): number[] {
   ];
 }
 
-// ─── Ghost foot wireframe ─────────────────────────────────────────────────────
+// ─── Holographic foot reference ───────────────────────────────────────────────
 //
-// A minimal right-foot wireframe centred on the A4 sheet (world origin).
-// Three layers:
-//   GF_SOLE    — 15-point sole footprint outline at Y = 0 (ground plane)
-//   GF_INSTEP  —  7-point oval at the foot's instep height (~5–7 cm)
-//   GF_RIBS    — 5 vertical edges connecting SOLE → INSTEP (depth cue)
-//   GF_TOES    — 5 short stubs rising from each toe tip (height cue)
+// "Holographic Minimalist Foot" — four visual layers rendered via canvas:
+//
+//   GRID      — fine cyan grid on the A4 sheet plane (Y = 0)
+//   PRISM     — ultra-thin (~0.6 px) outline of the foot volume (glass effect)
+//   CLOUD     — cyan dots at all key vertices + interior cloud points
+//   CORNERS   — glowing laser-targeting L-bracket markers at the 4 A4 corners
+//
+// All opacity values are modulated by a smooth cosine "breathing" pulse that
+// oscillates between 0.20 and 0.50 every 2 seconds (ease-in-out feel).
 //
 // Coordinate system (world / A4 sheet):
-//   X = long axis of the A4 sheet (heel at −X, toes at +X)
-//   Z = short axis (medial / big-toe side at +Z, lateral at −Z)
-//   Y = vertical (0 = sheet, up = positive)
+//   X = long axis (heel at −X, toes at +X)
+//   Z = short axis (medial/big-toe at +Z, lateral at −Z)
+//   Y = vertical   (0 = sheet surface, up = positive)
 // Units: metres.
 
 type Pt3 = [number, number, number];
 
-/** Sole footprint outline — 15 vertices, closed loop. */
+// ── Foot geometry (shared between glass prism + point cloud) ─────────────────
+
 const GF_SOLE: Pt3[] = [
   [-0.108,  0,  0.028],  //  0  heel inner (medial)
   [-0.120,  0,  0.000],  //  1  heel back
@@ -164,106 +168,195 @@ const GF_SOLE: Pt3[] = [
   [-0.060,  0,  0.040],  // 14  mid-foot inner
 ];
 
-/** Instep oval — 7 vertices, closed loop at foot-top height. */
 const GF_INSTEP: Pt3[] = [
-  [-0.092, 0.054,  0.018],  // 0  heel top medial
-  [-0.102, 0.038,  0.000],  // 1  heel top back
-  [-0.092, 0.054, -0.018],  // 2  heel top lateral
-  [-0.032, 0.068, -0.030],  // 3  instep outer
-  [ 0.038, 0.064, -0.026],  // 4  ball outer top
-  [ 0.038, 0.064,  0.022],  // 5  ball inner top
-  [-0.032, 0.068,  0.030],  // 6  instep inner
+  [-0.092, 0.054,  0.018],
+  [-0.102, 0.038,  0.000],
+  [-0.092, 0.054, -0.018],
+  [-0.032, 0.068, -0.030],
+  [ 0.038, 0.064, -0.026],
+  [ 0.038, 0.064,  0.022],
+  [-0.032, 0.068,  0.030],
 ];
 
-/** Vertical rib pairs [sole index, instep index]. */
 const GF_RIBS: [number, number][] = [
-  [1, 1],   // heel back
-  [3, 3],   // mid outer
-  [12, 5],  // ball inner
-  [14, 6],  // mid inner
-  [0, 0],   // heel inner
+  [1, 1], [3, 3], [12, 5], [14, 6], [0, 0],
 ];
 
-/** Toe stubs: [ground base, elevated tip]. One per digit, lateral → medial. */
 const GF_TOES: [Pt3, Pt3][] = [
-  [[ 0.118, 0, -0.016], [ 0.118, 0.016, -0.016]],  // 5th
-  [[ 0.128, 0,  0.000], [ 0.128, 0.019,  0.000]],  // 4th
-  [[ 0.125, 0,  0.018], [ 0.125, 0.021,  0.018]],  // 3rd
-  [[ 0.116, 0,  0.033], [ 0.116, 0.021,  0.033]],  // 2nd
-  [[ 0.095, 0,  0.048], [ 0.095, 0.026,  0.048]],  // big toe
+  [[ 0.118, 0, -0.016], [ 0.118, 0.016, -0.016]],
+  [[ 0.128, 0,  0.000], [ 0.128, 0.019,  0.000]],
+  [[ 0.125, 0,  0.018], [ 0.125, 0.021,  0.018]],
+  [[ 0.116, 0,  0.033], [ 0.116, 0.021,  0.033]],
+  [[ 0.095, 0,  0.048], [ 0.095, 0.026,  0.048]],
+];
+
+/** Interior mid-height points for a richer holographic point cloud. */
+const GF_CLOUD_EXTRA: Pt3[] = [
+  [-0.050, 0.025, -0.025],  [-0.050, 0.025,  0.022],
+  [ 0.000, 0.038, -0.018],  [ 0.000, 0.038,  0.017],
+  [ 0.040, 0.020, -0.022],  [ 0.040, 0.020,  0.016],
+  [-0.010, 0.052,  0.000],  [ 0.020, 0.058,  0.000],
+  [-0.090, 0.018,  0.000],
+  [ 0.070, 0.012, -0.034],  [ 0.070, 0.012,  0.030],
+  [-0.035, 0.010, -0.040],  [-0.035, 0.010,  0.038],
+];
+
+/** All 4 A4 sheet corners in world coordinates (metres). */
+const GF_A4_CORNERS: Pt3[] = [
+  [-0.1485, 0, -0.105],  // TL
+  [ 0.1485, 0, -0.105],  // TR
+  [-0.1485, 0,  0.105],  // BL
+  [ 0.1485, 0,  0.105],  // BR
+];
+
+// ── Full point cloud: sole + instep + toe tips + interior ────────────────────
+const GF_ALL_CLOUD: Pt3[] = [
+  ...GF_SOLE,
+  ...GF_INSTEP,
+  ...GF_TOES.map(([, tip]) => tip),
+  ...GF_CLOUD_EXTRA,
 ];
 
 /**
- * Draw the ghost foot wireframe onto the canvas.
+ * Holographic foot reference — drawn each RAF frame at the current camera pose.
  *
- * All vertices are projected with the current pose, so the foot stays
- * locked to the A4 sheet as the phone moves.  Each segment is drawn
- * independently — a single behind-camera vertex skips only that edge,
- * not the whole outline.
- *
- * Visual style: ice-blue tint at globalAlpha = 0.20 (unobtrusive).
+ * @param now  performance.now() for the breathing pulse animation.
  */
-function drawGhostFoot(
+function drawHolographicFoot(
   ctx: CanvasRenderingContext2D,
   pose: CameraPose,
   K: CameraIntrinsics,
+  now: number,
 ) {
   const proj = (p: Pt3) => projectPoint3D(p, pose, K);
 
-  /** Draw a closed polygon segment-by-segment; skips behind-camera edges. */
-  const drawLoop = (pts: Pt3[]) => {
-    for (let i = 0; i < pts.length; i++) {
-      const a = proj(pts[i]);
-      const b = proj(pts[(i + 1) % pts.length]);
-      if (!a || !b) continue;
-      ctx.beginPath();
-      ctx.moveTo(a[0], a[1]);
-      ctx.lineTo(b[0], b[1]);
-      ctx.stroke();
+  // Breathing: smooth cosine pulse 0.20 → 0.50 → 0.20 every 2 s
+  const breathT     = (now / 2000) % 1;                         // 0…1 cycle
+  const breathSin   = 0.5 - 0.5 * Math.cos(breathT * Math.PI * 2); // 0…1
+  const breathAlpha = 0.20 + 0.30 * breathSin;                  // 0.20…0.50
+
+  const CYAN    = "rgba(0, 210, 255, 1)";
+  const CYAN_HI = "rgba(200, 248, 255, 1)";
+
+  // ── 1. Floor grid (A4 plane, Y = 0) ───────────────────────────────────────
+  // Grid spacing 3 cm → 10 × 7 cells inside the 297 × 210 mm sheet.
+  {
+    ctx.save();
+    ctx.strokeStyle = CYAN;
+    ctx.lineWidth   = 0.5;
+    ctx.globalAlpha = breathAlpha * 0.28;
+
+    for (let x = -0.148; x <= 0.149; x += 0.030) {
+      const a = proj([x, 0, -0.105]);
+      const b = proj([x, 0,  0.105]);
+      if (a && b) { ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
     }
-  };
-
-  /** Draw a single straight edge. */
-  const drawEdge = (p1: Pt3, p2: Pt3) => {
-    const a = proj(p1);
-    const b = proj(p2);
-    if (!a || !b) return;
-    ctx.beginPath();
-    ctx.moveTo(a[0], a[1]);
-    ctx.lineTo(b[0], b[1]);
-    ctx.stroke();
-  };
-
-  ctx.save();
-  ctx.globalAlpha = 0.20;
-  ctx.strokeStyle = "rgba(190, 228, 255, 1)"; // ice-blue tint (Starlink palette)
-  ctx.lineWidth   = 1.4;
-  ctx.lineCap     = "round";
-  ctx.lineJoin    = "round";
-
-  drawLoop(GF_SOLE);    // sole footprint
-  drawLoop(GF_INSTEP);  // instep oval
-
-  for (const [si, ii] of GF_RIBS) {
-    drawEdge(GF_SOLE[si], GF_INSTEP[ii]);
+    for (let z = -0.105; z <= 0.106; z += 0.030) {
+      const a = proj([-0.148, 0, z]);
+      const b = proj([ 0.148, 0, z]);
+      if (a && b) { ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+    }
+    ctx.restore();
   }
 
-  for (const [base, tip] of GF_TOES) {
-    drawEdge(base, tip);
+  // ── 2. Glass prism (ultra-thin outline, almost imperceptible) ─────────────
+  // lineWidth 0.6, effective alpha ≈ 2–5% — just enough to suggest volume.
+  {
+    ctx.save();
+    ctx.strokeStyle = CYAN_HI;
+    ctx.lineWidth   = 0.6;
+    ctx.lineCap     = "round";
+    ctx.globalAlpha = breathAlpha * 0.10;
+
+    const seg = (p1: Pt3, p2: Pt3) => {
+      const a = proj(p1), b = proj(p2);
+      if (a && b) { ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+    };
+
+    for (let i = 0; i < GF_SOLE.length;   i++) seg(GF_SOLE[i],   GF_SOLE[(i + 1) % GF_SOLE.length]);
+    for (let i = 0; i < GF_INSTEP.length; i++) seg(GF_INSTEP[i], GF_INSTEP[(i + 1) % GF_INSTEP.length]);
+    for (const [si, ii] of GF_RIBS)            seg(GF_SOLE[si],  GF_INSTEP[ii]);
+
+    ctx.restore();
   }
 
-  // Origin cross — small + marker at A4 centre for alignment reference
-  const O = proj([0, 0, 0]);
-  if (O) {
-    const ARM = 6; // px
-    ctx.globalAlpha = 0.30;
-    ctx.beginPath();
-    ctx.moveTo(O[0] - ARM, O[1]); ctx.lineTo(O[0] + ARM, O[1]);
-    ctx.moveTo(O[0], O[1] - ARM); ctx.lineTo(O[0], O[1] + ARM);
-    ctx.stroke();
+  // ── 3. Cyan point cloud — soft glow halo + hard dot per vertex ────────────
+  {
+    ctx.save();
+    for (const pt of GF_ALL_CLOUD) {
+      const p = proj(pt);
+      if (!p) continue;
+
+      // Soft glow halo (radial gradient, low alpha)
+      ctx.globalAlpha = breathAlpha * 0.24;
+      const grd = ctx.createRadialGradient(p[0], p[1], 0, p[0], p[1], 7);
+      grd.addColorStop(0, "rgba(0, 200, 255, 1)");
+      grd.addColorStop(1, "rgba(0, 200, 255, 0)");
+      ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.arc(p[0], p[1], 7, 0, Math.PI * 2); ctx.fill();
+
+      // Bright hard dot
+      ctx.globalAlpha = breathAlpha;
+      ctx.fillStyle   = CYAN_HI;
+      ctx.beginPath(); ctx.arc(p[0], p[1], 2.0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
   }
 
-  ctx.restore();
+  // ── 4. A4 corner laser-targeting markers ──────────────────────────────────
+  // Design: radial glow + bright centre dot + L-bracket arms pointing inward
+  // toward the sheet centre.  Corner brightness = breathAlpha × 1.5 (max 1).
+  {
+    const oProj = proj([0, 0, 0]); // sheet centre on screen (for inward direction)
+
+    for (const corner of GF_A4_CORNERS) {
+      const p = proj(corner);
+      if (!p) continue;
+
+      const ca = Math.min(1, breathAlpha * 1.5);
+
+      ctx.save();
+
+      // Radial glow
+      ctx.globalAlpha = ca * 0.48;
+      const grd = ctx.createRadialGradient(p[0], p[1], 0, p[0], p[1], 20);
+      grd.addColorStop(0, "rgba(0, 210, 255, 0.65)");
+      grd.addColorStop(1, "rgba(0, 210, 255, 0)");
+      ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.arc(p[0], p[1], 20, 0, Math.PI * 2); ctx.fill();
+
+      // Bright centre dot
+      ctx.globalAlpha = ca;
+      ctx.fillStyle   = "rgba(230, 252, 255, 1)";
+      ctx.beginPath(); ctx.arc(p[0], p[1], 3.0, 0, Math.PI * 2); ctx.fill();
+
+      // L-bracket arms — two arms pointing inward (toward sheet centre)
+      if (oProj) {
+        const inX = Math.sign(oProj[0] - p[0]) || 1;  // ±1
+        const inY = Math.sign(oProj[1] - p[1]) || 1;
+        const GAP = 5, ARM = 14;
+
+        ctx.strokeStyle = CYAN;
+        ctx.lineWidth   = 1.6;
+        ctx.lineCap     = "round";
+        ctx.globalAlpha = ca;
+
+        // Horizontal arm
+        ctx.beginPath();
+        ctx.moveTo(p[0] + inX * GAP, p[1]);
+        ctx.lineTo(p[0] + inX * (GAP + ARM), p[1]);
+        ctx.stroke();
+
+        // Vertical arm
+        ctx.beginPath();
+        ctx.moveTo(p[0], p[1] + inY * GAP);
+        ctx.lineTo(p[0], p[1] + inY * (GAP + ARM));
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+  }
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -705,13 +798,9 @@ export function FootEraserCanvas({
         (p) => now - p.diedAt < DYING_MS,
       );
 
-      // ── 5. Ghost foot — translucent wireframe reference ──────────────────
-      //
-      // Rendered first (before dome dots) so dots always appear on top.
-      // Visible whenever we have a valid (live or ghost) pose — helps the
-      // user verify that the 3D tracking is correctly aligned to the sheet.
+      // ── 5. Holographic foot reference — rendered before dome dots ─────────
       if (trackingOk && smoothedPoseRef.current) {
-        drawGhostFoot(ctx, smoothedPoseRef.current, K);
+        drawHolographicFoot(ctx, smoothedPoseRef.current, K, now);
       }
 
       // ── 6. Draw outer scanning ring (faint amber) ─────────────────────────
