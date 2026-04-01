@@ -2835,8 +2835,8 @@ export default function ScannerCattura() {
 
         if (!reconItems.length) {
           // Fallback: legacy photos pipeline
-          const reconLeftLegacy = selectRepresentativePhaseFrames(photosLeft, reconPhotosPerPhase);
-          const reconRightLegacy = selectRepresentativePhaseFrames(photosRight, reconPhotosPerPhase);
+          const reconLeftLegacy = selectRepresentativePhaseFrames<Photo>(photosLeft, reconPhotosPerPhase);
+          const reconRightLegacy = selectRepresentativePhaseFrames<Photo>(photosRight, reconPhotosPerPhase);
           reconItems = [...reconLeftLegacy, ...reconRightLegacy].map((p) => ({
             blob: p.blob,
             phaseId: p.phaseId,
@@ -3781,8 +3781,8 @@ export default function ScannerCattura() {
     try {
       const secret = import.meta.env.VITE_UPLOAD_API_SECRET as string | undefined;
 
-      const uploadLeft = selectRepresentativePhaseFrames(photosLeft, UPLOAD_PHOTOS_PER_PHASE);
-      const uploadRight = selectRepresentativePhaseFrames(photosRight, UPLOAD_PHOTOS_PER_PHASE);
+      const uploadLeft = selectRepresentativePhaseFrames<Photo>(photosLeft, UPLOAD_PHOTOS_PER_PHASE);
+      const uploadRight = selectRepresentativePhaseFrames<Photo>(photosRight, UPLOAD_PHOTOS_PER_PHASE);
 
       const items: { blob: Blob; name: string; phaseId: PhaseId; foot: FootId }[] = [
         ...uploadLeft.map((p, idx) => ({
@@ -4134,6 +4134,23 @@ export default function ScannerCattura() {
             </div>
             <div className="mt-3 text-[12px] text-white/55">
               {openCvError || "Errore inizializzazione OpenCV."}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Emergency: OpenCV loop fatal stop (camera not anchored / aruco missing) */}
+      {STARLINK_DOT_CLOUD_MODE && cameraState === "readyPhase" && openCvAruco.snapshot.status === "error" && openCvAruco.snapshot.error ? (
+        <div className="pointer-events-auto absolute inset-0 z-[97] flex items-center justify-center px-6">
+          <div className="w-full max-w-md rounded-3xl border border-red-300/18 bg-black/75 p-6 text-center text-white backdrop-blur-2xl">
+            <div className="text-[11px] font-semibold tracking-[0.18em] text-red-200/85 uppercase">
+              ERRORE CRITICO
+            </div>
+            <div className="mt-2 text-[18px] font-semibold tracking-tight">
+              Fotocamera non agganciata o ArUco mancante
+            </div>
+            <div className="mt-3 text-[12px] text-white/60">
+              {openCvAruco.snapshot.error}
             </div>
           </div>
         </div>
