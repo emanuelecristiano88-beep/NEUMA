@@ -12,6 +12,7 @@ import { requestOrientationAccess } from "./hooks/useDeviceTilt";
 import { useScanFrameOrientation } from "./hooks/useScanFrameOrientation";
 import { useFootEraser } from "./hooks/useFootEraser";
 import { FootEraserCanvas } from "./components/scanner/FootEraserCanvas";
+import { FootPlacementGuideCanvas } from "./components/scanner/FootPlacementGuideCanvas";
 import { ScanReviewOverlay } from "./components/scanner/ScanReviewOverlay";
 import type { ObservationData } from "./lib/aruco/poseEstimation";
 import { A4_SHEET_DIMS_MM } from "./lib/aruco/sheetDimensions";
@@ -4550,6 +4551,18 @@ export default function ScannerCattura() {
       {cameraState === "readyPhase" ? (
         <canvas ref={debugCanvasRef} className="pointer-events-none absolute inset-0 z-[19]" aria-hidden />
       ) : null}
+
+      {/* Foot Placement Guide: projected foot silhouette + heel line before scan starts */}
+      {STARLINK_DOT_CLOUD_MODE && cameraState === "readyPhase" && (
+        <FootPlacementGuideCanvas
+          markerQuads={openCvAruco.snapshot.quadsNorm}
+          videoRef={videoRef}
+          containerRef={videoContainerRef}
+          foot={currentFoot}
+          onFootChange={(f) => setCurrentFoot(f)}
+          visible={eraser.totalConsumed === 0 && !eraser.isComplete}
+        />
+      )}
 
       {/* Foot Eraser: hemisphere dots projected via ArUco pose (cv.projectPoints) */}
       <FootEraserCanvas
