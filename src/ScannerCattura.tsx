@@ -14,6 +14,8 @@ import { useFootEraser } from "./hooks/useFootEraser";
 import { FootEraserCanvas } from "./components/scanner/FootEraserCanvas";
 import { FootPlacementGuideCanvas } from "./components/scanner/FootPlacementGuideCanvas";
 import { ScanReviewOverlay } from "./components/scanner/ScanReviewOverlay";
+import { ScanFinalSummary } from "./components/scanner/ScanFinalSummary";
+import { finalizeScanData, type FinalizedScanData } from "./lib/scanner/finalizeScanData";
 import type { ObservationData } from "./lib/aruco/poseEstimation";
 import { A4_SHEET_DIMS_MM } from "./lib/aruco/sheetDimensions";
 
@@ -668,6 +670,8 @@ export default function ScannerCattura() {
     observations: ObservationData[];
     frozenFrameUrl: string | null;
   } | null>(null);
+  /** Finalized scan data (measurements + quality) shown in the summary screen. */
+  const [finalizedData, setFinalizedData] = React.useState<FinalizedScanData | null>(null);
   const lastArucoSeenAtRef = useRef(0);
   const domeFadeStartAtRef = useRef(0);
   const domeOpacityRef = useRef(0);
@@ -1329,6 +1333,21 @@ export default function ScannerCattura() {
 
     scanPayloadRef.current = payload;
 
+    // ── Finalize: compute foot measurements + quality score ────────────────
+    const fin = finalizeScanData({
+      capturedPoints:    [...captured],
+      textureFrameCount: textureFramesRef.current.length,
+      scanDurationMs:    startTime !== null ? Math.round(endTime - startTime) : null,
+      sheetDimensions:   { ...A4_SHEET_DIMS_MM },
+    });
+    setFinalizedData(fin);
+    console.log(
+      `[NEUMA] Misure stimate — Lunghezza: ${fin.measurements.lengthMm}mm, ` +
+      `Larghezza: ${fin.measurements.widthMm}mm, ` +
+      `Altezza: ${fin.measurements.instepHeightMm}mm, ` +
+      `EU: ${fin.measurements.euSize}, Qualità: ${fin.quality.label} (${fin.quality.score}/100)`,
+    );
+
     console.log(
       `[NEUMA] scanPayload pronto — ${payload.totalPoints} punti, ` +
       `durata ${payload.scanDurationMs != null ? (payload.scanDurationMs / 1000).toFixed(1) + "s" : "n/a"}, ` +
@@ -1617,6 +1636,7 @@ export default function ScannerCattura() {
     textureFramesRef.current   = [];
     lastMilestonePctRef.current = 0;
     setReviewData(null);
+    setFinalizedData(null);
     setIsSendingPayload(false);
     setFinalCountdown(null);
   }, [eraser]);
@@ -4812,6 +4832,18 @@ export default function ScannerCattura() {
           onConfirm={handleReviewConfirm}
           isSending={isSendingPayload}
           visible
+        />
+      ) : null}
+
+      {/* ── Final summary: measurements + "Genera Modello 3D" ────────────── */}
+      {STARLINK_DOT_CLOUD_MODE && finalizedData ? (
+        <ScanFinalSummary
+          finalized={finalizedData}
+          frozenFrameUrl={reviewData?.frozenFrameUrl ?? null}
+          onConfirm={handleReviewConfirm}
+          onRetry={handleReviewRetry}
+          isSending={isSendingPayload}
+          visible={finalCountdown !== null && !isSendingPayload}
         />
       ) : null}
 
