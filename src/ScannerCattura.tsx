@@ -1674,15 +1674,19 @@ export default function ScannerCattura() {
   // Timers removed: Starlink mode completes event-driven when last dot is consumed.
 
   useEffect(() => {
-    if (!isVideoRecording) return;
+    // Run during normal video recording AND during Starlink eraser phase (for
+    // motion-blur gating and exposure compensation even without MediaRecorder).
+    const inStarlinkPhase = STARLINK_DOT_CLOUD_MODE && cameraState === "readyPhase";
+    if (!isVideoRecording && !inStarlinkPhase) return;
+
     let raf = 0;
     let cancelled = false;
     const canvas = (blurCanvasRef.current ??= document.createElement("canvas"));
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return;
 
+    // Gradient-energy sharpness metric (higher = sharper frame)
     const computeSharpness = (img: ImageData) => {
-      // Metricas semplice: energia dei gradienti (più alta = più nitido, più bassa = blur).
       const d = img.data;
       let acc = 0;
       let n = 0;
@@ -1703,6 +1707,9 @@ export default function ScannerCattura() {
       return n ? acc / n : 0;
     };
 
+    // Throttle: only touch exposureCompensation once every 5 s
+    let lastExpAdjustAt = 0;
+
     const tick = () => {
       if (cancelled) return;
       const v = videoRef.current;
@@ -1722,7 +1729,49 @@ export default function ScannerCattura() {
       const sharp = computeSharpness(img);
       motionBlurScoreRef.current = sharp;
 
+      // ── Mean luminance (inexpensive — 1 pass over img.data) ───────────────
+      const d = img.data;
+      let sumLum = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        sumLum += 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+      }
+      const meanLum = d.length > 0 ? sumLum / (d.length >> 2) : 128;
+
+      // ── Adaptive exposure compensation (throttled to 5 s) ─────────────────
+      // Uses the camera-track `exposureCompensation` constraint where available
+      // (Redmi / Android Chrome typically supports this via ImageCapture API).
+      // Logic:
+      //   dark frame (meanLum < 65) + low sharpness  → probably poor ArUco contrast → boost EC
+      //   bright frame (meanLum > 195) + low sharpness → overexposed → reduce EC
+      //   otherwise → reset to 0 (auto-exposure baseline)
       const now = performance.now();
+      if (now - lastExpAdjustAt > 5000) {
+        lastExpAdjustAt = now;
+        const track = streamRef.current?.getVideoTracks?.()[0];
+        if (track) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const caps = (track as any).getCapabilities?.() as Record<string, any> | undefined ?? {};
+          const ecCaps = caps.exposureCompensation as { min?: number; max?: number } | undefined;
+          if (ecCaps) {
+            const ecMin = ecCaps.min ?? -3;
+            const ecMax = ecCaps.max ??  3;
+            let ecTarget = 0; // default: let the camera auto-expose
+            if (meanLum < 65 && sharp < 12) {
+              // Dark + blurry ArUco area → push exposure up by ~1.5 EV
+              ecTarget = Math.min(ecMax, 1.5);
+            } else if (meanLum > 195 && sharp < 8) {
+              // Overexposed + washed out → pull down by 1 EV
+              ecTarget = Math.max(ecMin, -1.0);
+            }
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (track as any).applyConstraints({ advanced: [{ exposureCompensation: ecTarget }] });
+            } catch { /* unsupported on this device — ignore gracefully */ }
+          }
+        }
+      }
+
+      // ── Motion speed estimation via orbit angle delta ─────────────────────
       const angle = typeof liveOrbitAngleDeg === "number" ? liveOrbitAngleDeg : null;
       let speedDegPerS = 0;
       if (angle != null && lastAngleDegRef.current != null && lastAngleTsRef.current > 0) {
@@ -1735,9 +1784,10 @@ export default function ScannerCattura() {
       lastAngleDegRef.current = angle;
       lastAngleTsRef.current = now;
 
-      // Soglia empirica: se stai girando troppo velocemente o la nitidezza scende, avvisa.
+      // Empirical thresholds: low sharpness = blur (motion or poor light);
+      // high angular speed = user is panning too fast to capture reliably.
       const blurLikely = sharp < 10.5;
-      const tooFast = speedDegPerS > 95;
+      const tooFast    = speedDegPerS > 95;
       setShowMotionBlurWarning(blurLikely || tooFast);
 
       raf = requestAnimationFrame(tick);
@@ -1748,7 +1798,7 @@ export default function ScannerCattura() {
       cancelled = true;
       cancelAnimationFrame(raf);
     };
-  }, [isVideoRecording, liveOrbitAngleDeg]);
+  }, [isVideoRecording, cameraState, liveOrbitAngleDeg]);
 
   /**
    * Feedback qualità foglio:
@@ -4390,6 +4440,7 @@ export default function ScannerCattura() {
         videoRef={videoRef}
         containerRef={videoContainerRef}
         visible={STARLINK_DOT_CLOUD_MODE && cameraState === "readyPhase" && !eraser.isComplete}
+        motionBlurBlocking={showMotionBlurWarning}
         onPointCaptured={(obs) => {
           if (scanStartTimeRef.current === null) {
             scanStartTimeRef.current = obs.timestamp; // perf.now() from RAF

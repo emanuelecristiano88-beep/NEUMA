@@ -59,6 +59,7 @@ const C_DYING    = "rgba(255, 255, 255, 1)";
 const C_MIRINO       = "rgba(255, 255, 255, 0.80)";
 const C_MIRINO_GHOST = "rgba(255, 255, 255, 0.52)"; // dimmed during ghost window
 const C_MIRINO_LO    = "rgba(255, 255, 255, 0.28)"; // very dim when fully lost
+const C_MIRINO_BLUR  = "rgba(251, 191, 36, 0.90)";  // amber — motion-blur blocked
 
 /**
  * After tracking loss, keep the last smoothed pose and continue projecting
@@ -639,6 +640,12 @@ interface Props {
    * dot world position) so the parent can build a capture path for 3D reconstruction.
    */
   onPointCaptured?: (obs: ObservationData) => void;
+  /**
+   * When true the Mirino reticle turns amber and point consumption is paused.
+   * Driven by the parent's sharpness/speed motion-blur detector so that
+   * imprecise captures (camera moving too fast or scene too blurry) are skipped.
+   */
+  motionBlurBlocking?: boolean;
 }
 
 export function FootEraserCanvas({
@@ -649,6 +656,7 @@ export function FootEraserCanvas({
   containerRef,
   visible,
   onPointCaptured,
+  motionBlurBlocking = false,
 }: Props) {
   const canvasRef             = useRef<HTMLCanvasElement>(null);
   const rafRef                = useRef<number>(0);
@@ -709,8 +717,11 @@ export function FootEraserCanvas({
    */
   const lowPowerRef            = useRef<boolean>(false);
 
+  const motionBlurBlockingRef = useRef(motionBlurBlocking);
+
   useEffect(() => { quadsRef.current = markerQuads; }, [markerQuads]);
   useEffect(() => { onPointCapturedRef.current = onPointCaptured; }, [onPointCaptured]);
+  useEffect(() => { motionBlurBlockingRef.current = motionBlurBlocking; }, [motionBlurBlocking]);
 
   // ── Battery / Low Power Mode detection ───────────────────────────────────
   useEffect(() => {
@@ -1106,7 +1117,7 @@ export function FootEraserCanvas({
 
       for (const dot of projectedAll) {
         const d2 = (dot.sx - cx) ** 2 + (dot.sy - cy) ** 2;
-        if (trackingLive && d2 <= MIRINO_RADIUS_PX ** 2) {
+        if (trackingLive && !motionBlurBlockingRef.current && d2 <= MIRINO_RADIUS_PX ** 2) {
           doneIds.push(dot.id);
 
           // Queue the death animation (only once per dot)
@@ -1323,15 +1334,45 @@ export function FootEraserCanvas({
       }
 
       // ── 10. Mirino (targeting reticle) — always visible ──────────────────
+      //   BLUR  → amber (C_MIRINO_BLUR)  — capture paused, camera moving
       //   LIVE  → full white (C_MIRINO)
       //   GHOST → half-dim (C_MIRINO_GHOST) — dots frozen, no new erasure
       //   LOST  → very dim (C_MIRINO_LO)
-      const mirinoColor = trackingLive
-        ? C_MIRINO
-        : trackingGhost
-          ? C_MIRINO_GHOST
-          : C_MIRINO_LO;
+      const mirinoBlocked = motionBlurBlockingRef.current;
+      const mirinoColor = mirinoBlocked
+        ? C_MIRINO_BLUR
+        : trackingLive
+          ? C_MIRINO
+          : trackingGhost
+            ? C_MIRINO_GHOST
+            : C_MIRINO_LO;
       drawMirino(ctx, cx, cy, MIRINO_RADIUS_PX, mirinoColor);
+
+      // ── 10b. "Rallenta" badge — shown only when motion-blur blocks erasure ─
+      if (mirinoBlocked && trackingLive) {
+        ctx.save();
+        const badgeY  = cy - MIRINO_RADIUS_PX - 14;
+        const label   = "Rallenta";
+        ctx.font      = "bold 11px ui-rounded, -apple-system, sans-serif";
+        const tw      = ctx.measureText(label).width;
+        const pad     = 8;
+        const bx      = cx - tw / 2 - pad;
+        const bw      = tw + pad * 2;
+        // Pill background
+        ctx.fillStyle    = "rgba(251, 191, 36, 0.18)";
+        ctx.strokeStyle  = "rgba(251, 191, 36, 0.60)";
+        ctx.lineWidth    = 1;
+        const br = 6;
+        ctx.beginPath();
+        ctx.roundRect(bx, badgeY - 11, bw, 18, br);
+        ctx.fill();
+        ctx.stroke();
+        // Text
+        ctx.fillStyle = "rgba(251, 191, 36, 0.95)";
+        ctx.textAlign  = "center";
+        ctx.fillText(label, cx, badgeY + 2);
+        ctx.restore();
+      }
 
       // ── 11. Debug box — bottom-left, always on ───────────────────────────
       const trackingLabel = trackingLive
