@@ -858,6 +858,12 @@ export function FootEraserCanvas({
       }
 
       // 3b-iii. Pick the highest-priority message (null = all good)
+      //
+      // Priority order (highest → lowest):
+      //   1. Light too low    → "Più luce necessaria"
+      //   2. Too far          → "Avvicinati al piede"
+      //   3. Moving too fast  → "Rallenta il movimento"
+      //   4. Sector lagging   → sector-specific hint (see 3b-iv below)
       let suggestedGuidance: string | null = null;
       if (!eraser.isComplete) {
         if (lightCheckRef.current.brightness < BRIGHTNESS_LOW) {
@@ -866,6 +872,23 @@ export function FootEraserCanvas({
           suggestedGuidance = "Avvicinati al piede";
         } else if (trackingLive && speedEmaRef.current > SPEED_TOO_FAST_MS) {
           suggestedGuidance = "Rallenta il movimento";
+        } else if (eraser.progress > 25) {
+          // ── Sector guidance (lowest priority) ─────────────────────────────
+          // After the user has started scanning (> 25 % overall), find the
+          // most-lagging sector and nudge them toward it.
+          // The threshold (0.70) is set below SECTOR_MIN_PCT (0.80) so the hint
+          // appears early enough to actually guide behaviour.
+          const sp = eraser.sectorProgress;
+          const sectors = [
+            { key: "top"   as const, pct: sp.top.pct,   msg: "Inquadra il piede dall'alto" },
+            { key: "left"  as const, pct: sp.left.pct,  msg: "Inquadra il tallone lateralmente" },
+            { key: "right" as const, pct: sp.right.pct, msg: "Spostati verso l'arco plantare" },
+          ] as const;
+          // Sort ascending by pct to find the most lagging sector
+          const lagging = [...sectors].sort((a, b) => a.pct - b.pct)[0];
+          if (lagging.pct < 0.70) {
+            suggestedGuidance = lagging.msg;
+          }
         }
       }
 

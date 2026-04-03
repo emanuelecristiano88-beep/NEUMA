@@ -24,6 +24,24 @@ import type { ScanFrameTilt } from "./useScanFrameOrientation";
 
 export type DomePointStatus = "idle" | "scanning" | "done";
 
+/**
+ * Hemisphere sector classification.
+ *
+ * The dome is divided into three roughly equal sectors (~50 points each with
+ * the default 150-point dome):
+ *
+ *   'top'   — points with sin(elevation) > 0.65  (elevation > ~41°).
+ *             Camera looks steeply downward → top-of-foot coverage.
+ *   'left'  — low-elevation points with wz < 0.
+ *             Camera views from the lateral / heel side of the foot.
+ *   'right' — low-elevation points with wz ≥ 0.
+ *             Camera views from the medial / arch side of the foot.
+ *
+ * The Z axis is the short axis of the A4 sheet (= foot-width direction).
+ * The foot is assumed to lie lengthwise along the long (X) axis.
+ */
+export type DomeSector = "top" | "left" | "right";
+
 export interface EraserPoint {
   /** Unique index 0…(N-1). */
   id: number;
@@ -40,6 +58,27 @@ export interface EraserPoint {
    * forwarded to the canvas for a 200 ms fade-out animation.
    */
   status: DomePointStatus;
+  /** Hemisphere sector this point belongs to (set once at generation time). */
+  sector: DomeSector;
+}
+
+/**
+ * Per-sector capture statistics, updated on every React render.
+ * Used to gate the completion condition and drive guidance messages.
+ */
+export interface SectorStats {
+  /** Total points initially generated in this sector. */
+  count: number;
+  /** Points consumed (status: 'done') so far. */
+  consumed: number;
+  /** Fraction consumed, 0.0 → 1.0. */
+  pct: number;
+}
+
+export interface SectorProgress {
+  top:   SectorStats;
+  left:  SectorStats;
+  right: SectorStats;
 }
 
 export interface ProjectedDot {
@@ -71,8 +110,17 @@ export interface FootEraserState {
    * @param scanningIds (optional) IDs currently in the outer scanning ring.
    */
   consume: (doneIds: number[], scanningIds?: number[]) => void;
-  /** 0–100 integer percentage. */
+  /** 0–100 integer overall percentage (drives the ring fill). */
   progress: number;
+  /**
+   * Per-sector capture statistics.
+   * Updated each render; used to gate completion and drive guidance hints.
+   */
+  sectorProgress: SectorProgress;
+  /**
+   * True when every sector has reached SECTOR_MIN_PCT (80%) consumed.
+   * The ring shows "✓ Completo" only when this is true.
+   */
   isComplete: boolean;
   totalConsumed: number;
   reset: () => void;
@@ -92,7 +140,35 @@ const MAX_TILT_X_DEG = 22;
 const MAX_TILT_Z_DEG = 28;
 const MAX_PHI_DEG = 75;
 
+/**
+ * Minimum fraction of points in each sector that must be consumed before
+ * `isComplete` becomes true.  Setting to 0.80 means the user must cover at
+ * least 80 % of the top, left, and right views — ensuring the 3D point cloud
+ * has full lateral coverage even if the user lingers on a single angle.
+ */
+const SECTOR_MIN_PCT = 0.80;
+
 // ─── Pure utilities ───────────────────────────────────────────────────────────
+
+/**
+ * Classify a dome point into one of the three scan sectors based on its
+ * hemisphere position.
+ *
+ * Threshold: sin(elevation) = wy / r
+ *   wy/r > 0.65  (elevation ≈ 40.5°) → 'top'     (~35 % of hemisphere area)
+ *   wy/r ≤ 0.65, wz < 0              → 'left'    (~32.5 % each side)
+ *   wy/r ≤ 0.65, wz ≥ 0              → 'right'
+ *
+ * With 150 Vogel points the threshold gives ≈ 50 / 50 / 50 per sector.
+ */
+function getSector(wx: number, wy: number, wz: number): DomeSector {
+  void wx; // wx intentionally unused — sector split is along the Z axis only
+  const r = Math.sqrt(wx * wx + wy * wy + wz * wz);
+  if (r < 1e-9) return "top";
+  const sinEl = wy / r; // sin(elevation above horizontal)
+  if (sinEl > 0.65) return "top";
+  return wz < 0 ? "left" : "right";
+}
 
 function deg2rad(d: number) { return (d * Math.PI) / 180; }
 
@@ -126,12 +202,16 @@ export function generateGoldenSpiralDome(
     const sinPhi = Math.sqrt(Math.max(0, 1 - y * y)); // sin of polar angle
     const theta = goldenAngle * i;                     // azimuthal angle
 
+    const wx = Math.cos(theta) * sinPhi * radius;
+    const wy = Math.max(0, y) * radius;
+    const wz = Math.sin(theta) * sinPhi * radius;
     pts.push({
       id: i,
-      wx: Math.cos(theta) * sinPhi * radius, // X — right
-      wy: Math.max(0, y) * radius,            // Y — up
-      wz: Math.sin(theta) * sinPhi * radius, // Z — forward
+      wx,
+      wy,
+      wz,
       status: "idle",
+      sector: getSector(wx, wy, wz),
     });
   }
 
@@ -208,6 +288,13 @@ function projectPoint(
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
+/** Helper: compute sector totals from a fresh dome array. */
+function computeSectorTotals(pts: EraserPoint[]): Record<DomeSector, number> {
+  const t: Record<DomeSector, number> = { top: 0, left: 0, right: 0 };
+  for (const p of pts) t[p.sector]++;
+  return t;
+}
+
 export function useFootEraser(enabled: boolean): FootEraserState {
   const [remainingPoints, setRemainingPoints] = useState<EraserPoint[]>(() =>
     generateGoldenSpiralDome(DEFAULT_COUNT, DEFAULT_RADIUS_M),
@@ -218,12 +305,45 @@ export function useFootEraser(enabled: boolean): FootEraserState {
   const consumedRef  = useRef<Set<number>>(new Set());
   /** IDs currently in 'scanning' state (previous frame's snapshot). */
   const prevScanRef  = useRef<Set<number>>(new Set());
+  /**
+   * Total points per sector — computed once at dome generation and updated on
+   * reset().  Used to derive sector consumed count = total − remaining.
+   */
+  const sectorTotalsRef = useRef<Record<DomeSector, number>>(
+    computeSectorTotals(remainingPoints),
+  );
 
   useEffect(() => { pointsRef.current = remainingPoints; }, [remainingPoints]);
 
   const totalConsumed = DEFAULT_COUNT - remainingPoints.length;
   const progress      = Math.round((totalConsumed / DEFAULT_COUNT) * 100);
-  const isComplete    = remainingPoints.length === 0;
+
+  // ── Sector progress ──────────────────────────────────────────────────────
+  // Count remaining points per sector from React state; consumed = total − remaining.
+  const sectorRemaining: Record<DomeSector, number> = { top: 0, left: 0, right: 0 };
+  for (const p of remainingPoints) sectorRemaining[p.sector]++;
+
+  const totals = sectorTotalsRef.current;
+  const mkStats = (s: DomeSector): SectorStats => {
+    const count    = totals[s];
+    const consumed = count - sectorRemaining[s];
+    return { count, consumed, pct: count > 0 ? consumed / count : 0 };
+  };
+  const sectorProgress: SectorProgress = {
+    top:   mkStats("top"),
+    left:  mkStats("left"),
+    right: mkStats("right"),
+  };
+
+  /**
+   * isComplete fires only when every sector has reached SECTOR_MIN_PCT.
+   * This ensures the 3D point cloud has adequate lateral coverage — not just
+   * a top-down view — before triggering the "Scansione Completata" overlay.
+   */
+  const isComplete =
+    sectorProgress.top.pct   >= SECTOR_MIN_PCT &&
+    sectorProgress.left.pct  >= SECTOR_MIN_PCT &&
+    sectorProgress.right.pct >= SECTOR_MIN_PCT;
 
   /**
    * tick() — called every animation frame by FootEraserCanvas.
@@ -347,9 +467,10 @@ export function useFootEraser(enabled: boolean): FootEraserState {
 
   const reset = useCallback(() => {
     const pts = generateGoldenSpiralDome(DEFAULT_COUNT, DEFAULT_RADIUS_M);
-    pointsRef.current   = pts;
-    prevScanRef.current = new Set();
+    pointsRef.current        = pts;
+    prevScanRef.current      = new Set();
     consumedRef.current.clear();
+    sectorTotalsRef.current  = computeSectorTotals(pts);
     setRemainingPoints(pts);
   }, []);
 
@@ -357,5 +478,5 @@ export function useFootEraser(enabled: boolean): FootEraserState {
     if (!enabled) reset();
   }, [enabled, reset]);
 
-  return { remainingPoints, tick, consume, progress, isComplete, totalConsumed, reset };
+  return { remainingPoints, tick, consume, progress, sectorProgress, isComplete, totalConsumed, reset };
 }
