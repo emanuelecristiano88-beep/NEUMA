@@ -84,6 +84,14 @@ function useAnimatedCount(target: number, durationMs = 340) {
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
+export type PlantarArchChipVariant = "insufficient" | "low" | "neutral" | "high";
+
+export interface PlantarArchChip {
+  title:    string;
+  subtitle: string;
+  variant:  PlantarArchChipVariant;
+}
+
 interface Props {
   /** 0–100 */
   progress: number;
@@ -91,6 +99,33 @@ interface Props {
   visible: boolean;
   /** Set to true when all points have been consumed */
   isComplete?: boolean;
+  /** Live plantar-arch comfort line (TPU 95A hint) — hidden when scan completes */
+  plantarArch?: PlantarArchChip | null;
+}
+
+function plantarArchColors(v: PlantarArchChipVariant): { title: string; sub: string } {
+  switch (v) {
+    case "low":
+      return {
+        title: "rgba(251, 191, 36, 0.98)",
+        sub:   "rgba(253, 224, 180, 0.78)",
+      };
+    case "high":
+      return {
+        title: "rgba(196, 181, 253, 0.98)",
+        sub:   "rgba(221, 214, 254, 0.78)",
+      };
+    case "neutral":
+      return {
+        title: "rgba(52, 211, 153, 0.96)",
+        sub:   "rgba(167, 243, 208, 0.78)",
+      };
+    default:
+      return {
+        title: "rgba(255, 255, 255, 0.58)",
+        sub:   "rgba(255, 255, 255, 0.42)",
+      };
+  }
 }
 
 export function ScannerAppleProgress({
@@ -98,6 +133,7 @@ export function ScannerAppleProgress({
   remaining,
   visible,
   isComplete = false,
+  plantarArch = null,
 }: Props) {
   const displayedPct = useAnimatedCount(isComplete ? 100 : progress, 320);
 
@@ -108,6 +144,9 @@ export function ScannerAppleProgress({
 
   const ringColor = isComplete ? COLOR_DONE : COLOR_PROGRESS;
 
+  const showArch = plantarArch && !isComplete;
+  const archCol  = showArch ? plantarArchColors(plantarArch.variant) : null;
+
   return (
     <div
       style={{
@@ -116,8 +155,10 @@ export function ScannerAppleProgress({
         right: 14,
         zIndex: 90,
         display: "flex",
-        alignItems: "center",
-        gap: 10,
+        flexDirection: "column",
+        alignItems: "stretch",
+        gap: 0,
+        maxWidth: showArch ? 220 : undefined,
         background: isComplete
           ? "rgba(255,255,255,0.12)"
           : "rgba(0,0,0,0.46)",
@@ -126,15 +167,23 @@ export function ScannerAppleProgress({
         border: isComplete
           ? "1px solid rgba(255,255,255,0.30)"
           : "1px solid rgba(255,255,255,0.10)",
-        borderRadius: 999,
-        padding: "6px 14px 6px 6px",
+        borderRadius: showArch ? 20 : 999,
+        padding: showArch ? "8px 14px 10px 8px" : "6px 14px 6px 6px",
         boxShadow: isComplete
           ? "0 4px 24px rgba(255,255,255,0.18)"
           : "0 4px 24px rgba(0,0,0,0.35)",
         animation: isComplete ? "sap-pulse 1.8s ease-in-out infinite" : "none",
-        transition: "background 600ms, border 600ms, box-shadow 600ms",
+        transition: "background 600ms, border 600ms, box-shadow 600ms, border-radius 320ms ease",
       }}
     >
+      <div
+        style={{
+          display:        "flex",
+          flexDirection:  "row",
+          alignItems:     "center",
+          gap:            10,
+        }}
+      >
       {/* ── Activity ring ───────────────────────────────────────────────── */}
       <svg
         width={RING_SIZE}
@@ -233,6 +282,52 @@ export function ScannerAppleProgress({
           {isComplete ? "Elaborazione…" : `${remaining} rimasti`}
         </div>
       </div>
+      </div>
+
+      {showArch && plantarArch && archCol && (
+        <>
+          <div
+            style={{
+              height:     1,
+              margin:     "6px 2px 0",
+              background: "rgba(255,255,255,0.14)",
+            }}
+          />
+          <div
+            style={{
+              fontFamily:
+                "ui-rounded, -apple-system, BlinkMacSystemFont, sans-serif",
+              fontWeight:    600,
+              fontSize:      11,
+              lineHeight:    1.25,
+              color:         archCol.title,
+              marginTop:     6,
+              paddingLeft:   4,
+              paddingRight:  4,
+              letterSpacing: "0.01em",
+            }}
+          >
+            {plantarArch.title}
+          </div>
+          <div
+            style={{
+              fontFamily:
+                "ui-rounded, -apple-system, BlinkMacSystemFont, sans-serif",
+              fontWeight:    500,
+              fontSize:      9,
+              lineHeight:    1.3,
+              color:         archCol.sub,
+              marginTop:     2,
+              paddingLeft:   4,
+              paddingRight:  4,
+              paddingBottom: 2,
+              letterSpacing: "0.02em",
+            }}
+          >
+            {plantarArch.subtitle}
+          </div>
+        </>
+      )}
     </div>
   );
 }

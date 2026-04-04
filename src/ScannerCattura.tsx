@@ -16,6 +16,7 @@ import { FootPlacementGuideCanvas } from "./components/scanner/FootPlacementGuid
 import { ScanReviewOverlay } from "./components/scanner/ScanReviewOverlay";
 import { ScanFinalSummary } from "./components/scanner/ScanFinalSummary";
 import { finalizeScanData, type FinalizedScanData } from "./lib/scanner/finalizeScanData";
+import type { PlantarArchUi } from "./lib/scanner/plantarArch";
 import type { ObservationData } from "./lib/aruco/poseEstimation";
 import { A4_SHEET_DIMS_MM } from "./lib/aruco/sheetDimensions";
 
@@ -1299,6 +1300,18 @@ export default function ScannerCattura() {
 
   // ── Foot Eraser (Starlink-inverted UX) ─────────────────────────────────────
   const eraser = useFootEraser(scanOverlayEnabled && STARLINK_DOT_CLOUD_MODE);
+
+  /** Live plantar-arch classification for TPU 95A support (from FootEraserCanvas RAF). */
+  const [plantarArchUi, setPlantarArchUi] = useState<PlantarArchUi | null>(null);
+  const onPlantarArchUpdate = useCallback((ui: PlantarArchUi) => {
+    setPlantarArchUi(ui);
+  }, []);
+
+  useEffect(() => {
+    if (eraser.totalConsumed === 0 && !eraser.isComplete) {
+      setPlantarArchUi(null);
+    }
+  }, [eraser.totalConsumed, eraser.isComplete]);
 
   // Keep a mutable ref so FootEraserCanvas can read the latest tilt in its own
   // RAF loop without a stale closure and without re-rendering on every frame.
@@ -4592,6 +4605,8 @@ export default function ScannerCattura() {
         videoRef={videoRef}
         containerRef={videoContainerRef}
         visible={STARLINK_DOT_CLOUD_MODE && cameraState === "readyPhase" && !eraser.isComplete}
+        footId={currentFoot}
+        onPlantarArchUpdate={onPlantarArchUpdate}
         motionBlurBlocking={showMotionBlurWarning}
         onPointCaptured={(obs) => {
           if (scanStartTimeRef.current === null) {
@@ -4607,6 +4622,15 @@ export default function ScannerCattura() {
         remaining={eraser.remainingPoints.length}
         visible={STARLINK_DOT_CLOUD_MODE && cameraState === "readyPhase"}
         isComplete={eraser.isComplete}
+        plantarArch={
+          !eraser.isComplete && plantarArchUi
+            ? {
+                title:    plantarArchUi.title,
+                subtitle: plantarArchUi.subtitle,
+                variant:  plantarArchUi.category,
+              }
+            : null
+        }
       />
 
       {/* Mini debug view: analysis (B/W) buffer */}

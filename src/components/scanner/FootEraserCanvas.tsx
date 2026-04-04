@@ -39,7 +39,13 @@ import {
   type CameraIntrinsics,
 } from "@/lib/aruco/poseEstimation";
 import { isObservationOutlier } from "@/lib/scanner/observationFilter";
+import {
+  triangulateHeightMetrics,
+  categorizePlantarArch,
+  type PlantarArchUi,
+} from "@/lib/scanner/plantarArch";
 import { A4_SHEET_DIMS_MM } from "@/lib/aruco/sheetDimensions";
+import type { FootId } from "@/types/scan";
 
 // ─── Visual constants ─────────────────────────────────────────────────────────
 
@@ -448,101 +454,8 @@ function drawHolographicFoot(
   }
 }
 
-// ─── Height triangulation ─────────────────────────────────────────────────────
-
-/**
- * Incremental ray-ray triangulation for foot height estimation.
- *
- * Geometry:  The A4 sheet is the Y = 0 world plane.  Each erased observation
- * carries a camera origin C and a look direction D (the camera's optical axis
- * in world space).  The ray  C + t·D  passes from outside the dome, through the
- * virtual dome surface point, continues inside the dome and would eventually
- * hit the A4 plane.  The real foot surface is somewhere along this ray between
- * the dome point and the A4 plane.
- *
- * When two rays from sufficiently different viewpoints are found, their nearest
- * points are computed (standard skew-line closest-point formula) and their
- * midpoint is taken as an estimated 3-D surface sample.  Its Y coordinate
- * (in metres) is the estimated foot height at that (X, Z) location.
- *
- * Called incrementally: each new observation is paired with all previous ones,
- * giving O(n) work per new point, O(n²/2) total.  With at most 150 dome points,
- * this is at most 11 175 pair evaluations — negligible overhead.
- *
- * Noise filters applied per pair:
- *   • Rays must not be nearly parallel   (|D1·D2| > 0.97 → skip)
- *   • Both t parameters must be positive (point in front of camera)
- *   • Residual distance between nearest points ≤ 60 mm (poor convergence guard)
- *   • Midpoint Y must be in [2 mm, 150 mm] — above sheet, plausible foot height
- *   • Midpoint (X, Z) must lie within A4 bounds (with a small margin)
- *
- * @returns The newly found maximum height in mm, or 0 if no valid pair found.
- */
-function triangulateMaxHeight(
-  newObs: ObservationData,
-  prevObs: ObservationData[],
-): number {
-  // Spatial bounds (metres)
-  const A4_HALF_X  = 0.157; // 297 mm / 2 + 8 mm margin
-  const A4_HALF_Z  = 0.113; // 210 mm / 2 + 8 mm margin
-  const MIN_H      = 0.002; // 2 mm  — virtual base-plane guard
-  const MAX_H      = 0.155; // 155 mm — maximum plausible foot+shoe height
-  const MAX_RESID  = 0.060; // 60 mm  — ray-ray residual quality filter
-
-  let maxH = 0;
-
-  const [c1x, c1y, c1z] = newObs.cameraWorldPos;
-  const [d1x, d1y, d1z] = newObs.lookDirWorld;
-
-  for (const o2 of prevObs) {
-    const [c2x, c2y, c2z] = o2.cameraWorldPos;
-    const [d2x, d2y, d2z] = o2.lookDirWorld;
-
-    // Skip near-parallel rays — height poorly determined
-    const dotDD = d1x * d2x + d1y * d2y + d1z * d2z;
-    if (Math.abs(dotDD) > 0.970) continue;
-
-    // Vector between ray origins
-    const wx = c1x - c2x, wy2 = c1y - c2y, wz = c1z - c2z;
-
-    // Standard skew-line nearest-point formula
-    const b   = dotDD;
-    const d   = d1x * wx + d1y * wy2 + d1z * wz;
-    const e   = d2x * wx + d2y * wy2 + d2z * wz;
-    const den = 1 - b * b;
-    if (den < 1e-8) continue;
-
-    const t1 = (b * e - d) / den;
-    const t2 = (e - b * d) / den;
-
-    // Both points must be in front of their respective cameras
-    if (t1 < 0.01 || t2 < 0.01) continue;
-
-    // Closest points on each ray
-    const p1x = c1x + t1 * d1x, p1y = c1y + t1 * d1y, p1z = c1z + t1 * d1z;
-    const p2x = c2x + t2 * d2x, p2y = c2y + t2 * d2y, p2z = c2z + t2 * d2z;
-
-    // Residual (quality check — large residual = poorly converging rays)
-    const rdx = p1x - p2x, rdy = p1y - p2y, rdz = p1z - p2z;
-    if (rdx * rdx + rdy * rdy + rdz * rdz > MAX_RESID * MAX_RESID) continue;
-
-    // Midpoint = estimated 3-D surface sample
-    const my = (p1y + p2y) * 0.5;
-
-    // ── Virtual base-plane guard: discard points below the A4 sheet ──────
-    if (my < MIN_H || my > MAX_H) continue;
-
-    // ── XZ bounding check: must lie over the A4 sheet ────────────────────
-    const mx = (p1x + p2x) * 0.5;
-    const mz = (p1z + p2z) * 0.5;
-    if (Math.abs(mx) > A4_HALF_X || Math.abs(mz) > A4_HALF_Z) continue;
-
-    const hMm = my * 1000;
-    if (hMm > maxH) maxH = hMm;
-  }
-
-  return maxH;
-}
+// Ray-ray height triangulation: triangulateHeightMetrics in @/lib/scanner/plantarArch
+// (global max + medial isthmus band for plantar arch).
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1031,6 +944,10 @@ interface Props {
    * imprecise captures (camera moving too fast or scene too blurry) are skipped.
    */
   motionBlurBlocking?: boolean;
+  /** Sinistro / destro — definisce il lato mediale della fascia istmo sull’A4. */
+  footId?: FootId;
+  /** Aggiornamento live classificazione arco (solo quando titolo/sottotitolo cambiano). */
+  onPlantarArchUpdate?: (ui: PlantarArchUi) => void;
 }
 
 export function FootEraserCanvas({
@@ -1042,6 +959,8 @@ export function FootEraserCanvas({
   visible,
   onPointCaptured,
   motionBlurBlocking = false,
+  footId = "LEFT",
+  onPlantarArchUpdate,
 }: Props) {
   const canvasRef             = useRef<HTMLCanvasElement>(null);
   const rafRef                = useRef<number>(0);
@@ -1146,6 +1065,15 @@ export function FootEraserCanvas({
    */
   const consumedGhostsRef = useRef<Map<number, ConsumedGhostEntry>>(new Map());
 
+  /** Running max triangulation height (mm) inside medial plantar-arch / isthmus zone. */
+  const archIsthmusMmRef       = useRef<number>(0);
+  const lastPlantarEmitKeyRef  = useRef<string>("");
+  const footIdRef              = useRef<FootId>(footId);
+  const onPlantarArchUpdateRef = useRef(onPlantarArchUpdate);
+
+  useEffect(() => { footIdRef.current = footId; }, [footId]);
+  useEffect(() => { onPlantarArchUpdateRef.current = onPlantarArchUpdate; }, [onPlantarArchUpdate]);
+
   useEffect(() => { quadsRef.current = markerQuads; }, [markerQuads]);
   useEffect(() => { onPointCapturedRef.current = onPointCaptured; }, [onPointCaptured]);
   useEffect(() => { motionBlurBlockingRef.current = motionBlurBlocking; }, [motionBlurBlocking]);
@@ -1228,6 +1156,8 @@ export function FootEraserCanvas({
         pendingMultiSampleRef.current.clear();
         heatmapCountsRef.current.fill(0);
         consumedGhostsRef.current.clear();
+        archIsthmusMmRef.current      = 0;
+        lastPlantarEmitKeyRef.current = "";
       }
       if (w === 0 || h === 0) { rafRef.current = requestAnimationFrame(draw); return; }
 
@@ -1716,7 +1646,14 @@ export function FootEraserCanvas({
 
                 cb(merged);
 
-                const newH = triangulateMaxHeight(merged, localObsRef.current);
+                const { globalMaxMm, archMaxMm } = triangulateHeightMetrics(
+                  merged,
+                  localObsRef.current,
+                  footIdRef.current,
+                );
+                if (archMaxMm > archIsthmusMmRef.current) {
+                  archIsthmusMmRef.current = archMaxMm;
+                }
                 localObsRef.current.push(merged);
 
                 footCloudRef.current.push(
@@ -1726,11 +1663,12 @@ export function FootEraserCanvas({
                   footCloudRef.current,
                 );
 
-                if (newH > maxHeightMmRef.current) {
-                  maxHeightMmRef.current = newH;
+                if (globalMaxMm > maxHeightMmRef.current) {
+                  maxHeightMmRef.current = globalMaxMm;
                   console.log(
-                    `[NEUMA] Altezza piede aggiornata: ${newH.toFixed(1)} mm` +
-                    ` (da ${localObsRef.current.length} osservazioni)`,
+                    `[NEUMA] Altezza piede aggiornata: ${globalMaxMm.toFixed(1)} mm` +
+                    ` (da ${localObsRef.current.length} osservazioni)` +
+                    ` | arco istmo ${archIsthmusMmRef.current.toFixed(0)} mm`,
                   );
                 }
 
@@ -2035,6 +1973,19 @@ export function FootEraserCanvas({
         rejectedCountRef.current,
         liveFootMetricsRef.current,
       );
+
+      const archCb = onPlantarArchUpdateRef.current;
+      if (visible && archCb) {
+        const ui = categorizePlantarArch(
+          archIsthmusMmRef.current,
+          liveFootMetricsRef.current?.lMm ?? null,
+        );
+        const pKey = `${ui.category}|${ui.title}|${ui.subtitle}`;
+        if (pKey !== lastPlantarEmitKeyRef.current) {
+          lastPlantarEmitKeyRef.current = pKey;
+          archCb(ui);
+        }
+      }
 
       rafRef.current = requestAnimationFrame(draw);
     };
