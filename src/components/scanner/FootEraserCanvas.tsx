@@ -85,6 +85,48 @@ const STANDING_MIN_HEIGHT_M = 0.85;
 const TILT_MIN_DEG = 30;
 
 /**
+ * |gamma| da DeviceOrientation / accelerometro oltre questa soglia → rollio eccessivo:
+ * la larghezza in quad appare distorta (parallasse).
+ */
+const PARALLAX_MAX_LATERAL_GAMMA_DEG = 70;
+
+/**
+ * Se gamma non è disponibile: angolo del quad A4 in schermo molto lontano da 90°
+ * indica prospettiva estrema (fallback OpenCV / geometria foglio).
+ */
+const PARALLAX_CORNER_SKEW_DEG = 38;
+
+const PARALLAX_HINT_TEXT =
+  "Tieni il telefono più inclinato verso il centro";
+
+/** Mirino ambra — stesso tono del blur; priorità sotto il rosso postura. */
+const C_MIRINO_PARALLAX = C_MIRINO_BLUR;
+
+/**
+ * Max scostamento |angolo − 90°| sui vertici del quad A4 in pixel space.
+ */
+function maxCornerDeviationFrom90Deg(quad: [number, number][]): number {
+  if (quad.length !== 4) return 0;
+  let max = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i]!;
+    const b = quad[(i + 1) % 4]!;
+    const c = quad[(i + 2) % 4]!;
+    const u0 = b[0] - a[0];
+    const u1 = b[1] - a[1];
+    const v0 = c[0] - b[0];
+    const v1 = c[1] - b[1];
+    const nu = Math.hypot(u0, u1);
+    const nv = Math.hypot(v0, v1);
+    if (nu < 1e-3 || nv < 1e-3) continue;
+    const cos = (u0 * v0 + u1 * v1) / (nu * nv);
+    const ang = Math.acos(Math.max(-1, Math.min(1, cos))) * (180 / Math.PI);
+    max = Math.max(max, Math.abs(ang - 90));
+  }
+  return max;
+}
+
+/**
  * After tracking loss, keep the last smoothed pose and continue projecting
  * dots at their ghost position for this many milliseconds.
  * At 500 ms the dome disappears so the user knows tracking is gone.
@@ -952,7 +994,7 @@ interface Props {
 
 export function FootEraserCanvas({
   eraser,
-  tiltRef: _tiltRef,
+  tiltRef,
   markerQuads,
   videoRef,
   containerRef,
@@ -1030,6 +1072,13 @@ export function FootEraserCanvas({
   const standingWarnDivRef     = useRef<HTMLDivElement | null>(null);
   /** Last message pushed to standingWarnDivRef — change-detection optimisation. */
   const lastStandingMsgRef     = useRef<string | null>(null);
+
+  /** Parallax (roll) hint — frosted pill + icon; toggled in RAF, no React state. */
+  const parallaxHintDivRef      = useRef<HTMLDivElement | null>(null);
+  const parallaxArrowWrapRef    = useRef<HTMLDivElement | null>(null);
+  const parallaxLateralGRef     = useRef<SVGGElement | null>(null);
+  const parallaxCenterGRef      = useRef<SVGGElement | null>(null);
+  const lastParallaxUiKeyRef    = useRef<string>("");
 
   /**
    * Local mirror of all ObservationData captured in this scan pass.
@@ -1338,6 +1387,20 @@ export function FootEraserCanvas({
         lateralOffset = Math.sqrt(cp[0] ** 2 + cp[2] ** 2);
       }
 
+      // ── 2c. Parallax guard — |gamma| > soglia (sensor) o quad A4 molto scorciato (OpenCV)
+      const gRaw = tiltRef.current.rawGammaDeg;
+      const deviceParallax =
+        gRaw != null &&
+        Number.isFinite(gRaw) &&
+        Math.abs(gRaw) > PARALLAX_MAX_LATERAL_GAMMA_DEG;
+      const cornerSkewDeg =
+        sortedA4Quad.length === 4 ? maxCornerDeviationFrom90Deg(sortedA4Quad) : 0;
+      const visionParallax =
+        trackingLive &&
+        (gRaw == null || !Number.isFinite(gRaw)) &&
+        cornerSkewDeg > PARALLAX_CORNER_SKEW_DEG;
+      const parallaxBlocked = deviceParallax || visionParallax;
+
       // ── 3. Project dome points using smoothed (or ghost) pose ─────────────
       let projectedAll: { id: number; sx: number; sy: number }[] = [];
       if (trackingOk && smoothedPoseRef.current) {
@@ -1521,6 +1584,50 @@ export function FootEraserCanvas({
         }
       }
 
+      // ── 3d. Parallax hint (roll) — solo se non coperto da standing / tilt
+      {
+        const showParallaxHint =
+          !eraser.isComplete &&
+          trackingLive &&
+          parallaxBlocked &&
+          !standingBlockedRef.current &&
+          !tiltBlockedRef.current;
+        let arrowMode: "L" | "R" | "C" = "C";
+        if (showParallaxHint && deviceParallax && gRaw != null && Number.isFinite(gRaw)) {
+          arrowMode = gRaw > 0 ? "L" : "R";
+        }
+        const uiKey = `${showParallaxHint}|${arrowMode}`;
+        if (uiKey !== lastParallaxUiKeyRef.current) {
+          lastParallaxUiKeyRef.current = uiKey;
+          const pdiv = parallaxHintDivRef.current;
+          const awrap = parallaxArrowWrapRef.current;
+          const latG = parallaxLateralGRef.current;
+          const cenG = parallaxCenterGRef.current;
+          if (pdiv) {
+            if (!showParallaxHint) {
+              pdiv.style.opacity   = "0";
+              pdiv.style.transform = "translateX(-50%) translateY(-50%) scale(0.92)";
+              pdiv.style.pointerEvents = "none";
+            } else {
+              pdiv.style.opacity   = "1";
+              pdiv.style.transform = "translateX(-50%) translateY(-50%) scale(1)";
+              pdiv.style.pointerEvents = "none";
+            }
+          }
+          if (awrap && latG && cenG) {
+            if (arrowMode === "C") {
+              latG.style.opacity = "0";
+              cenG.style.opacity = "1";
+              awrap.style.transform = "none";
+            } else {
+              latG.style.opacity = "1";
+              cenG.style.opacity = "0";
+              awrap.style.transform = arrowMode === "R" ? "scaleX(-1)" : "scaleX(1)";
+            }
+          }
+        }
+      }
+
       // ── 4. Classify dots: done / scanning / idle ──────────────────────────
       //
       // Erasure (mirino hit detection) only fires when tracking is LIVE.
@@ -1564,6 +1671,7 @@ export function FootEraserCanvas({
           !motionBlurBlockingRef.current &&
           !standingBlockedRef.current &&
           !tiltBlockedRef.current &&
+          !parallaxBlocked &&
           d2 <= MIRINO_RADIUS_PX ** 2;
 
         if (!inMirino) {
@@ -1900,6 +2008,7 @@ export function FootEraserCanvas({
       //   LOST  → very dim (C_MIRINO_LO)
       // Mirino colour priority:
       //   red   (C_MIRINO_STAND) — standing or tilt blocked (highest)
+      //   amber (C_MIRINO_PARALLAX) — roll / parallasse (larghezza)
       //   amber (C_MIRINO_BLUR)  — motion-blur blocked
       //   white (C_MIRINO)       — tracking live, all clear
       //   dimmed variants        — ghost / fully lost
@@ -1907,32 +2016,37 @@ export function FootEraserCanvas({
       const anyPostureBlock  = standingBlockedRef.current || tiltBlockedRef.current;
       const mirinoColor = anyPostureBlock
         ? C_MIRINO_STAND
-        : mirinoBlocked
-          ? C_MIRINO_BLUR
-          : trackingLive
-            ? C_MIRINO
-            : trackingGhost
-              ? C_MIRINO_GHOST
-              : C_MIRINO_LO;
+        : parallaxBlocked
+          ? C_MIRINO_PARALLAX
+          : mirinoBlocked
+            ? C_MIRINO_BLUR
+            : trackingLive
+              ? C_MIRINO
+              : trackingGhost
+                ? C_MIRINO_GHOST
+                : C_MIRINO_LO;
       drawMirino(ctx, cx, cy, MIRINO_RADIUS_PX, mirinoColor);
 
       // ── 10b. Badge above mirino for any active block ──────────────────────
       //   "In piedi"  (red)   — user seated
       //   "Inclina"   (amber) — phone too upright
+      //   "Centro"    (amber) — roll / parallasse
       //   "Rallenta"  (amber) — motion blur
       const badgeLabel = standingBlockedRef.current
         ? "In piedi"
         : tiltBlockedRef.current
           ? "Inclina"
-          : mirinoBlocked
-            ? "Rallenta"
-            : null;
+          : parallaxBlocked
+            ? "Centro"
+            : mirinoBlocked
+              ? "Rallenta"
+              : null;
 
       if (badgeLabel && trackingLive) {
         ctx.save();
         const badgeY      = cy - MIRINO_RADIUS_PX - 14;
         const isRed       = badgeLabel === "In piedi";
-        const badgeColor  = isRed ? "239, 68, 68" : "251, 191, 36";
+        const badgeColor  = isRed ? "239, 68, 68" : "251, 191, 36"; // amber: inclina / centro / rallenta
         ctx.font          = "bold 11px ui-rounded, -apple-system, sans-serif";
         const tw          = ctx.measureText(badgeLabel).width;
         const pad         = 8;
@@ -2092,6 +2206,94 @@ export function FootEraserCanvas({
           userSelect:   "none",
         }}
       />
+
+      {/*
+       * Parallasse / rollio — pill sotto la severity standing, sopra guidance.
+       * Icona: telefono + freccia verso il centro (o doppia freccia se fallback vision).
+       */}
+      <div
+        ref={parallaxHintDivRef}
+        aria-live="polite"
+        style={{
+          position:             "absolute",
+          top:                  "42%",
+          left:                 "50%",
+          transform:            "translateX(-50%) translateY(-50%) scale(0.92)",
+          zIndex:               32,
+          opacity:              0,
+          transition:           "opacity 0.32s ease, transform 0.36s cubic-bezier(0.34, 1.56, 0.64, 1)",
+          display:              "flex",
+          alignItems:           "center",
+          gap:                  12,
+          background:           "rgba(14, 14, 16, 0.78)",
+          backdropFilter:       "blur(22px) saturate(180%)",
+          WebkitBackdropFilter: "blur(22px) saturate(180%)",
+          border:               "1px solid rgba(251, 191, 36, 0.42)",
+          borderRadius:         16,
+          padding:              "12px 18px",
+          maxWidth:             "min(92vw, 340px)",
+          pointerEvents:        "none",
+          userSelect:           "none",
+        }}
+      >
+        <svg
+          width={28}
+          height={28}
+          viewBox="0 0 28 28"
+          aria-hidden
+          style={{ flexShrink: 0, opacity: 0.92 }}
+        >
+          <rect
+            x={7.5}
+            y={4}
+            width={13}
+            height={20}
+            rx={2.2}
+            fill="none"
+            stroke="rgba(255,255,255,0.88)"
+            strokeWidth={1.4}
+          />
+        </svg>
+        <div ref={parallaxArrowWrapRef} style={{ width: 26, height: 26, flexShrink: 0 }}>
+          <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden>
+            <g
+              ref={parallaxLateralGRef}
+              fill="none"
+              stroke="rgba(251, 191, 36, 0.95)"
+              strokeWidth={1.65}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M6 13h8M6 13l3.2-3.1M6 13l3.2 3.1" />
+            </g>
+            <g
+              ref={parallaxCenterGRef}
+              fill="none"
+              stroke="rgba(251, 191, 36, 0.95)"
+              strokeWidth={1.65}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ opacity: 0 }}
+            >
+              <path d="M5 13h5M5 13l2.3-2.2M5 13l2.3 2.2" />
+              <path d="M21 13h-5M21 13l-2.3-2.2M21 13l-2.3 2.2" />
+            </g>
+          </svg>
+        </div>
+        <span
+          style={{
+            fontFamily:    "ui-rounded, -apple-system, BlinkMacSystemFont, sans-serif",
+            fontWeight:    500,
+            fontSize:      14,
+            color:         "rgba(255, 255, 255, 0.92)",
+            letterSpacing: "0.01em",
+            lineHeight:    1.35,
+            textShadow:    "0 1px 3px rgba(0,0,0,0.45)",
+          }}
+        >
+          {PARALLAX_HINT_TEXT}
+        </span>
+      </div>
     </>
   );
 }

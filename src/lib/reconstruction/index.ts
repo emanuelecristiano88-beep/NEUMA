@@ -72,6 +72,14 @@ export type { AxisAlignedBoundingBox } from "./footMetrics";
 export { pointCloudToPlyAscii, downloadPlyAscii } from "./exportPly";
 
 export {
+  exportToSTL,
+  exportFootPointCloudToSTL,
+  downloadStlBlob,
+  transformMeshToStlPrintSpaceMm,
+} from "./exportStl";
+export type { ExportStlOptions } from "./exportStl";
+
+export {
   regularizeFootPointCloud,
   DEFAULT_FOOT_SHAPE_REGULARIZE_OPTIONS,
 } from "./regularizeFootShape";
@@ -93,3 +101,21 @@ export {
   DEFAULT_FOOT_SURFACE_OPTIONS,
 } from "./footSurfaceMesh";
 export type { FootSurfaceOptions } from "./footSurfaceMesh";
+
+export {
+  augmentPointCloudForWatertightMesh,
+  DEFAULT_WATERTIGHT_FILL_OPTIONS,
+} from "./watertightPointCloudFill";
+export type { WatertightPointCloudFillOptions } from "./watertightPointCloudFill";
+
+export {
+  applyFootwearPointCloudPrep,
+  applyFootwearMeshBedAlignment,
+  DEFAULT_FOOTWEAR_PREP_OPTIONS,
+  DEFAULT_FOOTWEAR_MESH_BED_OPTIONS,
+} from "./footwearInsolePrep";
+export type {
+  FootwearPrepOptions,
+  FootwearMeshBedOptions,
+  FootwearVerticalConvention,
+} from "./footwearInsolePrep";

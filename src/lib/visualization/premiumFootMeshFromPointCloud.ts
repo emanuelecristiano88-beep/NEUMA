@@ -7,6 +7,20 @@ import {
   type FootSurfaceOptions,
 } from "@/lib/reconstruction/footSurfaceMesh";
 import { downsamplePointCloud } from "./downsamplePointCloud";
+import {
+  augmentPointCloudForWatertightMesh,
+  type WatertightPointCloudFillOptions,
+} from "@/lib/reconstruction/watertightPointCloudFill";
+import {
+  applyFootwearMeshBedAlignment,
+  applyFootwearPointCloudPrep,
+  DEFAULT_FOOTWEAR_MESH_BED_OPTIONS,
+  DEFAULT_FOOTWEAR_PREP_OPTIONS,
+  type FootwearMeshBedOptions,
+  type FootwearPrepOptions,
+} from "@/lib/reconstruction/footwearInsolePrep";
+
+export type { FootwearMeshBedOptions, FootwearPrepOptions, FootwearVerticalConvention } from "@/lib/reconstruction/footwearInsolePrep";
 
 type PremiumMeshOptions = {
   /** Picco per limitare rumore/aliasing nella ricostruzione (UI only). */
@@ -18,7 +32,41 @@ type PremiumMeshOptions = {
   extraSmoothLambda?: number;
   /** Rimuove isole piccole tenendo solo la componente con più triangoli. */
   keepLargestComponent?: boolean;
+  /**
+   * Se true (default), aggiunge punti sintetici nelle tasche (IDW dai vicini) prima
+   * dei metaball + Marching Cubes — mesh più chiusa per slicer (Bambu, ecc.).
+   */
+  watertightGapFill?: boolean;
+  watertightFillOptions?: Partial<WatertightPointCloudFillOptions>;
+  /**
+   * Calzatura / plantare: offset comfort, piano foglio, smoothing pelle, base piatta in mesh.
+   * `false` disattiva. Default: attivo (come richiesto per TPU / slicer).
+   */
+  footwear?: boolean | Partial<FootwearPrepOptions>;
+  /** Override allineamento mesh dopo MC (piano foglio, snap suola). */
+  footwearMeshBed?: Partial<FootwearMeshBedOptions>;
+  /**
+   * 1 = coordinate in mm (nuvola ricostruzione). 0.001 = metri (preview Three con mmToWorld).
+   */
+  footwearLinearUnitToMm?: number;
+  /** Iterazioni Laplaciano mesh extra quando footwear è attivo (TPU). */
+  footwearExtraMeshSmoothIterations?: number;
 };
+
+function resolveFootwearPrep(
+  footwear: PremiumMeshOptions["footwear"],
+  defaultLinearUnitToMm: number,
+): FootwearPrepOptions | null {
+  if (footwear === false) return null;
+  const partial = footwear === true || footwear === undefined ? {} : footwear;
+  if (partial.enabled === false) return null;
+  return {
+    ...DEFAULT_FOOTWEAR_PREP_OPTIONS,
+    ...partial,
+    enabled: true,
+    linearUnitToMm: partial.linearUnitToMm ?? defaultLinearUnitToMm,
+  };
+}
 
 function keepLargestConnectedTriangleComponent(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
   const idx = geometry.index;
@@ -154,6 +202,12 @@ export function buildPremiumFootDisplayMeshFromPointCloud(
     extraSmoothIterations = 2,
     extraSmoothLambda = 0.35,
     keepLargestComponent = true,
+    watertightGapFill = true,
+    watertightFillOptions,
+    footwear,
+    footwearMeshBed,
+    footwearLinearUnitToMm = 1,
+    footwearExtraMeshSmoothIterations = 1,
   } = options;
 
   const ds = downsamplePointCloud(cloud, maxDownsamplePoints);
@@ -177,6 +231,12 @@ export function buildPremiumFootDisplayMeshFromPointCloud(
     extraSmoothIterations,
     extraSmoothLambda,
     keepLargestComponent,
+    watertightGapFill,
+    watertightFillOptions,
+    footwear,
+    footwearMeshBed,
+    footwearLinearUnitToMm,
+    footwearExtraMeshSmoothIterations,
   });
 }
 
@@ -190,15 +250,32 @@ export function buildPremiumFootDisplayMeshFromPositions(
     extraSmoothIterations = 2,
     extraSmoothLambda = 0.35,
     keepLargestComponent = true,
+    watertightGapFill = true,
+    watertightFillOptions,
+    footwear,
+    footwearMeshBed,
+    footwearLinearUnitToMm = 0.001,
+    footwearExtraMeshSmoothIterations = 1,
     surfaceOptions,
   } = options;
 
   if (pointCount < 8) return null;
 
+  const filled =
+    watertightGapFill !== false
+      ? augmentPointCloudForWatertightMesh(positions, pointCount, watertightFillOptions)
+      : { positions, pointCount, syntheticAdded: 0 };
+
+  const footwearPrep = resolveFootwearPrep(footwear, footwearLinearUnitToMm);
+  const shoeCloud = footwearPrep
+    ? applyFootwearPointCloudPrep(filled.positions, filled.pointCount, footwearPrep)
+    : filled;
+
   const effectiveSurfaceOptions: Partial<FootSurfaceOptions> = surfaceOptions
     ? {
         ...surfaceOptions,
         resolution: Math.min(surfaceOptions.resolution ?? DEFAULT_FOOT_SURFACE_OPTIONS.resolution, voxelGridResolution),
+        ...(footwearPrep ? { finalNormalize: "skip" as const } : {}),
       }
     : {
         ...DEFAULT_FOOT_SURFACE_OPTIONS,
@@ -206,18 +283,38 @@ export function buildPremiumFootDisplayMeshFromPositions(
           resolution: Math.min(DEFAULT_FOOT_SURFACE_OPTIONS.resolution, voxelGridResolution),
           maxSourcePoints: Math.min(DEFAULT_FOOT_SURFACE_OPTIONS.maxSourcePoints, 2400),
           smoothIterations: Math.max(4, DEFAULT_FOOT_SURFACE_OPTIONS.smoothIterations),
+          ...(footwearPrep ? { finalNormalize: "skip" as const } : {}),
         },
       };
 
-  const geom = buildFootSurfaceFromPositions(positions, pointCount, effectiveSurfaceOptions);
+  const geom = buildFootSurfaceFromPositions(
+    shoeCloud.positions,
+    shoeCloud.pointCount,
+    effectiveSurfaceOptions,
+  );
   if (!geom) return null;
 
-  // Extra laplacian: riduce picchi e “spigoli” residui dopo marching cubes.
-  const smoothed = laplacianSmoothGeometry(geom, extraSmoothIterations, extraSmoothLambda);
+  const extraIt =
+    extraSmoothIterations + (footwearPrep ? footwearExtraMeshSmoothIterations : 0);
+  const smoothed = laplacianSmoothGeometry(geom, extraIt, extraSmoothLambda);
 
-  if (!keepLargestComponent) return smoothed;
-  const cleaned = keepLargestConnectedTriangleComponent(smoothed);
-  if (cleaned !== smoothed) smoothed.dispose();
-  return cleaned;
+  let out: THREE.BufferGeometry = smoothed;
+  if (keepLargestComponent) {
+    const cleaned = keepLargestConnectedTriangleComponent(smoothed);
+    if (cleaned !== smoothed) smoothed.dispose();
+    out = cleaned;
+  }
+
+  if (footwearPrep) {
+    const bed: FootwearMeshBedOptions = {
+      ...DEFAULT_FOOTWEAR_MESH_BED_OPTIONS,
+      ...footwearMeshBed,
+      verticalConvention: footwearPrep.verticalConvention,
+      sheetPlane: footwearPrep.sheetPlane,
+    };
+    applyFootwearMeshBedAlignment(out, bed);
+  }
+
+  return out;
 }
 

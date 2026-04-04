@@ -12,8 +12,11 @@ import { requestOrientationAccess } from "./hooks/useDeviceTilt";
 import { useScanFrameOrientation } from "./hooks/useScanFrameOrientation";
 import { useFootEraser } from "./hooks/useFootEraser";
 import { FootEraserCanvas } from "./components/scanner/FootEraserCanvas";
+import { FootScanMeshFlashOverlay } from "./components/scanner/FootScanMeshFlashOverlay";
 import { FootPlacementGuideCanvas } from "./components/scanner/FootPlacementGuideCanvas";
 import { ScanReviewOverlay } from "./components/scanner/ScanReviewOverlay";
+import type { ToeShapeKind } from "./lib/biometry/classifyToeShapeFromObservations";
+import { buildFootDesignPackageV1, persistFootDesignPackage } from "./lib/scanner/buildFootDesignPackage";
 import { ScanFinalSummary } from "./components/scanner/ScanFinalSummary";
 import { finalizeScanData, type FinalizedScanData } from "./lib/scanner/finalizeScanData";
 import type { PlantarArchUi } from "./lib/scanner/plantarArch";
@@ -622,6 +625,11 @@ export default function ScannerCattura() {
   const hapticStepRef = useRef(-1);
   const [dotCloudProgressPct, setDotCloudProgressPct] = useState(0);
   const [finalCountdown, setFinalCountdown] = useState<number | null>(null);
+  /** 2s di wireframe Delaunay sul video prima della review (≥2 punti). */
+  const [meshFlash, setMeshFlash] = useState<{
+    worldPoints: [number, number, number][];
+    lastObs: ObservationData;
+  } | null>(null);
   const dotCloudProgressRef = useRef(0);
   const dotCloudHudPctRef = useRef<HTMLSpanElement | null>(null);
   const debugFpsElRef = useRef<HTMLSpanElement | null>(null);
@@ -635,6 +643,8 @@ export default function ScannerCattura() {
   const dotCloudConsumedRef = useRef(0);
   const dotCloudStartedRef = useRef(false);
   const dotCloudDoneRef = useRef(false);
+  /** Dove `neuma:scan-proceed` deve portare l’utente (default: scan-results). */
+  const scanProceedTargetRef = useRef<"scan-results" | "design-plantare">("scan-results");
   /**
    * Accumulates one ObservationData record per erased dome point.
    * Each record contains the camera's world position + orientation at the
@@ -666,11 +676,13 @@ export default function ScannerCattura() {
 
   /** Last captured video frame URL (JPEG dataURL) — frozen as overlay background. */
   const frozenFrameRef = useRef<string | null>(null);
-  /** Snapshot of observations + frozen frame shown in the review overlay. */
+  /** Snapshot of observations (+ frozen frame for summary thumbnail). */
   const [reviewData, setReviewData] = React.useState<{
     observations: ObservationData[];
     frozenFrameUrl: string | null;
   } | null>(null);
+  /** Forma dita confermata in revisione (per payload / analytics). */
+  const confirmedToeShapeRef = useRef<ToeShapeKind | null>(null);
   /** Finalized scan data (measurements + quality) shown in the summary screen. */
   const [finalizedData, setFinalizedData] = React.useState<FinalizedScanData | null>(null);
   const lastArucoSeenAtRef = useRef(0);
@@ -1326,6 +1338,8 @@ export default function ScannerCattura() {
   useEffect(() => {
     if (!eraser.isComplete || cameraState !== "readyPhase" || !STARLINK_DOT_CLOUD_MODE) return;
 
+    let cancelled = false;
+
     // Haptic confirmation: 200 ms burst
     try { navigator.vibrate(200); } catch (_) { /* not available on all devices */ }
 
@@ -1390,8 +1404,31 @@ export default function ScannerCattura() {
       frozenFrameUrl: frozenFrameRef.current,
     });
 
-    // Show overlay (finalCountdown > 0 = visible)
-    setFinalCountdown(1);
+    // ── 2s wireframe sul video (Delaunay XZ), poi review ───────────────────
+    const meshDelayMs = captured.length >= 2 ? 2000 : 0;
+    if (captured.length >= 2) {
+      const last = captured[captured.length - 1]!;
+      setMeshFlash({
+        worldPoints: captured.map(
+          (o) => [o.dotWorldPos[0], o.dotWorldPos[1], o.dotWorldPos[2]] as [number, number, number],
+        ),
+        lastObs: last,
+      });
+    } else {
+      setMeshFlash(null);
+    }
+
+    const t = window.setTimeout(() => {
+      if (cancelled) return;
+      setMeshFlash(null);
+      setFinalCountdown(1);
+    }, meshDelayMs);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+      setMeshFlash(null);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eraser.isComplete, cameraState]);
 
@@ -1610,7 +1647,21 @@ export default function ScannerCattura() {
   );
 
   const stopAndUploadDotCloud = useCallback(async () => {
-    if (dotCloudDoneRef.current) return;
+    if (dotCloudDoneRef.current) {
+      // Upload già eseguito (es. completamento nuvola): emetti comunque l’evento
+      // così «Conferma Misure» può navigare verso design con `next: design-plantare`.
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("neuma:scan-proceed", {
+            detail: {
+              scanId: supabaseScanIdRef.current ?? undefined,
+              next: scanProceedTargetRef.current,
+            },
+          }),
+        );
+      }
+      return;
+    }
     dotCloudDoneRef.current = true;
 
     // Log the full observation path for debugging / downstream reconstruction.
@@ -1632,8 +1683,11 @@ export default function ScannerCattura() {
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("neuma:scan-proceed", {
-          detail: { scanId: supabaseScanIdRef.current ?? undefined },
-        })
+          detail: {
+            scanId: supabaseScanIdRef.current ?? undefined,
+            next: scanProceedTargetRef.current,
+          },
+        }),
       );
     }
   }, [stopVideoRecording, uploadFullScanVideo]);
@@ -1652,12 +1706,59 @@ export default function ScannerCattura() {
     setFinalizedData(null);
     setIsSendingPayload(false);
     setFinalCountdown(null);
+    setMeshFlash(null);
+    confirmedToeShapeRef.current = null;
+    scanProceedTargetRef.current = "scan-results";
   }, [eraser]);
 
   /** "Conferma Misure" — trigger upload flow and close the review overlay. */
   const handleReviewConfirm = useCallback(() => {
     if (isSendingPayload) return;
     setIsSendingPayload(true);
+    scanProceedTargetRef.current = "design-plantare";
+
+    const toeKind = confirmedToeShapeRef.current ?? "romano";
+    if (finalizedData && reviewData) {
+      try {
+        const footPkg = buildFootDesignPackageV1({
+          observations: reviewData.observations,
+          measurements: finalizedData.measurements,
+          toeShapeKind: toeKind,
+          scanDurationMs: finalizedData.scanDurationMs,
+          sheetDimensionsMm: {
+            width: finalizedData.sheetDimensions.widthMm,
+            height: finalizedData.sheetDimensions.heightMm,
+          },
+        });
+        persistFootDesignPackage(footPkg);
+        console.log(
+          "[NEUMA] footDesignPackageV1",
+          JSON.stringify(
+            {
+              ...footPkg,
+              filteredPointCloudMm: `[${footPkg.filteredPointCloudMm.length} points]`,
+            },
+            null,
+            2,
+          ),
+        );
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("neuma:foot-design-package-ready", {
+              detail: {
+                schemaVersion: footPkg.schemaVersion,
+                toeClassification: footPkg.toeClassification,
+                dimensionsMm: footPkg.dimensionsMm,
+                pointCount: footPkg.filteredPointCloudMm.length,
+                shoeToeBox: footPkg.shoeToeBox,
+              },
+            }),
+          );
+        }
+      } catch (e) {
+        console.warn("[NEUMA] buildFootDesignPackageV1 failed", e);
+      }
+    }
 
     const payload = scanPayloadRef.current;
     if (payload) {
@@ -1666,18 +1767,23 @@ export default function ScannerCattura() {
         JSON.stringify({
           ...payload,
           capturedPoints: `[${payload.capturedPoints.length} ObservationData records]`,
+          toeShape: confirmedToeShapeRef.current,
         }, null, 2),
       );
     }
 
-    stopAndUploadDotCloud().finally(() => {
-      setFinalCountdown(null);
-      setReviewData(null);
-      setIsSendingPayload(false);
-    }).catch(() => {
-      setIsSendingPayload(false);
-    });
-  }, [isSendingPayload, stopAndUploadDotCloud]);
+    stopAndUploadDotCloud()
+      .finally(() => {
+        scanProceedTargetRef.current = "scan-results";
+        setFinalCountdown(null);
+        setReviewData(null);
+        setIsSendingPayload(false);
+      })
+      .catch(() => {
+        scanProceedTargetRef.current = "scan-results";
+        setIsSendingPayload(false);
+      });
+  }, [isSendingPayload, stopAndUploadDotCloud, finalizedData, reviewData]);
 
   const startVideoRecording = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -4688,6 +4794,9 @@ export default function ScannerCattura() {
             height: "100%",
             zIndex: 1,
             backgroundColor: "black",
+            // Nasconde il feed durante revisione / riepilogo post-scan (viewer 3D sopra)
+            visibility:
+              STARLINK_DOT_CLOUD_MODE && finalCountdown !== null ? "hidden" : "visible",
             // NO overflow:hidden on video container — causes compositor clip on Android
           }}
         >
@@ -4699,6 +4808,17 @@ export default function ScannerCattura() {
             muted
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
+
+          {STARLINK_DOT_CLOUD_MODE && meshFlash ? (
+            <FootScanMeshFlashOverlay
+              visible
+              worldPoints={meshFlash.worldPoints}
+              lastObservation={meshFlash.lastObs}
+              markerQuads={openCvAruco.snapshot.quadsNorm}
+              videoRef={videoRef}
+              containerRef={videoContainerRef}
+            />
+          ) : null}
 
           {STARLINK_DOT_CLOUD_MODE ? (
             <canvas
@@ -4850,12 +4970,15 @@ export default function ScannerCattura() {
       {STARLINK_DOT_CLOUD_MODE && finalCountdown !== null && reviewData ? (
         <ScanReviewOverlay
           observations={reviewData.observations}
-          frozenFrameUrl={reviewData.frozenFrameUrl}
+          measurements={finalizedData?.measurements ?? null}
           sectorProgress={eraser.sectorProgress}
           onRetry={handleReviewRetry}
           onConfirm={handleReviewConfirm}
           isSending={isSendingPayload}
           visible
+          onToeShapeAcknowledged={(k) => {
+            confirmedToeShapeRef.current = k;
+          }}
         />
       ) : null}
 

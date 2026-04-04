@@ -124,6 +124,21 @@ export function computeCameraWorldPos(
   ];
 }
 
+/**
+ * Ricostruisce la `CameraPose` da un'osservazione mirino, per proiettare la nuvola
+ * nello spazio schermo (p_cam = R·p_world + t, con t = −R·C se C è il centro ottico).
+ */
+export function cameraPoseFromObservation(obs: ObservationData): CameraPose {
+  const R = obs.cameraRotationMatrix;
+  const C = obs.cameraWorldPos;
+  const t: [number, number, number] = [
+    -(R[0] * C[0] + R[1] * C[1] + R[2] * C[2]),
+    -(R[3] * C[0] + R[4] * C[1] + R[5] * C[2]),
+    -(R[6] * C[0] + R[7] * C[1] + R[8] * C[2]),
+  ];
+  return { R: [...R], t };
+}
+
 type Vec3 = [number, number, number];
 
 function norm3(v: Vec3): number { return Math.sqrt(v[0]**2 + v[1]**2 + v[2]**2); }

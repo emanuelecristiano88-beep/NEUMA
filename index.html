@@ -43,35 +43,23 @@
     <script>
       window.__opencv_boot = { errors: [], jsLoaded: false, wasmLoaded: false };
       window.cvReady = false;
+      // Use CDN opencv.js 4.5.5 which includes the ArUco contrib module.
+      // Let it fetch its own WASM from the same CDN origin.
       window.Module = {
-        wasmBinaryFile: "/opencv.wasm",
-        locateFile: function (path) {
-          return path.endsWith(".wasm") ? "/opencv.wasm" : path;
-        },
         onRuntimeInitialized: function () {
           window.cvReady = true;
           window.__opencv_boot.wasmLoaded = true;
-          console.log("NEUMA: OpenCV Pronto!");
-          var cv = window.cv;
-          if (!cv) return;
-          console.log("cv.aruco:", !!cv.aruco);
-          if (!cv.aruco) {
-            console.log("ERRORE: Modulo ArUco non presente nel file JS (rilevamento via js-aruco2)");
-            try {
-              var methods = Object.keys(cv).filter(function(k) { return typeof cv[k] === "function" || typeof cv[k] === "object"; });
-              console.log("cv primi 20 metodi/oggetti:", methods.slice(0, 20).join(", "));
-            } catch (e) { console.log("cv dump error:", e); }
-          }
+          console.log("NEUMA: OpenCV 4.5.5 Pronto! cv.aruco=", !!(window.cv && window.cv.aruco));
         },
       };
     </script>
     <script
-      src="/opencv.js"
+      src="https://docs.opencv.org/4.5.5/opencv.js"
       async
       crossorigin="anonymous"
       id="opencv-script"
-      onload="window.__opencv_boot.jsLoaded=true"
-      onerror="window.__opencv_boot.errors.push('JS load error: /opencv.js')"
+      onload="window.__opencv_boot.jsLoaded=true; console.log('opencv.js 4.5.5 loaded');"
+      onerror="window.__opencv_boot.errors.push('JS load error: opencv.js 4.5.5 CDN')"
     ></script>
     <!-- js-aruco2: pure-JS ArUco detection, no WASM required -->
     <script src="/jsaruco/cv.js"></script>

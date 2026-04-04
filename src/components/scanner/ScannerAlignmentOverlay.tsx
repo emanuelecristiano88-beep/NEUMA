@@ -122,7 +122,9 @@ export default function ScannerAlignmentOverlay({
     }
   }, [phaseIndex]);
 
-  const tilt = frameTilt ?? { rotateX: 0, rotateY: 0, rotateZ: 0 };
+  const tilt = frameTilt ?? {
+    rotateX: 0, rotateY: 0, rotateZ: 0, rawGammaDeg: null, rawBetaDeg: null,
+  };
 
   const sheetTransform = useMemo(() => {
     const conf = tracking.confidence;

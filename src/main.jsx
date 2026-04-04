@@ -44,6 +44,10 @@ function ScannerRoute() {
   useEffect(() => {
     const handler = (e) => {
       const detail = e.detail
+      if (detail?.next === 'design-plantare') {
+        navigate('/design-plantare', { state: { fromScan: true } })
+        return
+      }
       if (detail?.scanId) {
         navigate('/scan-results', { state: { scanId: detail.scanId } })
       } else {

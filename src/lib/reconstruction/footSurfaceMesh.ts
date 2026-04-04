@@ -23,6 +23,11 @@ export type FootSurfaceOptions = {
   lambda: number;
   /** Max punti sorgente (sottocampionamento stride) */
   maxSourcePoints: number;
+  /**
+   * centerScale: centra e scala come preview classica (~0.85 / maxDim).
+   * skip: nessuna normalizzazione (es. allineamento calzatura esterno sulla geometria).
+   */
+  finalNormalize?: "centerScale" | "skip";
 };
 
 export const DEFAULT_FOOT_SURFACE_OPTIONS: FootSurfaceOptions = {
@@ -260,6 +265,11 @@ export function buildFootSurfaceFromPositions(
   }
 
   let geom = laplacianSmoothGeometry(raw, opt.smoothIterations, opt.lambda);
+  const fin = opt.finalNormalize ?? "centerScale";
+  if (fin === "skip") {
+    geom.computeVertexNormals();
+    return geom;
+  }
   geom = centerAndNormalizeFootMesh(geom);
   return geom;
 }
